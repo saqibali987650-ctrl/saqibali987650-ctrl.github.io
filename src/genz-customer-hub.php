@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.5.4
+ * Version: 1.5.5
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.5.4';
+	const V = '1.5.5';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -41,6 +41,7 @@ final class GenZ_Hub {
 		add_filter('wpseo_opengraph_desc', [__CLASS__, 'cat_seo_desc'], 20);
 		add_action('woocommerce_archive_description', [__CLASS__, 'cat_banner_classic'], 5);
 		add_action('wp_head', [__CLASS__, 'skin_head'], 9999);
+		add_action('wp_footer', [__CLASS__, 'archive_footer'], 50);
 		add_action('admin_post_genz_hub_skin', [__CLASS__, 'admin_skin']);
 		add_action('save_post_product', [__CLASS__, 'clear_home_cache']);
 		add_action('woocommerce_update_product', [__CLASS__, 'clear_home_cache']);
@@ -989,6 +990,40 @@ html body .genz-guides-home > p,html body .genz-guides-home > .wp-block-group > 
 html body .genz-card,html body .genz-chat-panel{color:#1E1A24}
 CSS;
 	}
+	static function archive_footer() {
+		if (!function_exists('is_shop') || !(is_shop() || is_product_taxonomy() || is_search())) return; ?>
+<style>
+html body ul.wc-block-product-template{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:18px!important}
+html body ul.wc-block-product-template>li.wc-block-product{width:auto!important;max-width:none!important;margin:0!important;padding:10px 10px 14px!important;border-radius:18px!important}
+html body ul.wc-block-product-template .wc-block-components-product-image{margin-bottom:8px!important}
+html body ul.wc-block-product-template .wp-block-post-title,html body ul.wc-block-product-template .wp-block-post-title a{font-size:14px!important;line-height:1.35!important;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.7em;margin:4px 0!important}
+html body ul.wc-block-product-template .wc-block-components-product-price{font-size:15px!important;margin:2px 0!important}
+html body ul.wc-block-product-template .wp-block-button__link,html body ul.wc-block-product-template a.button{font-size:13px!important;padding:10px 12px!important;min-height:0!important}
+.gz-more-wrap{display:flex;flex-direction:column;align-items:center;gap:10px;margin:30px 0 10px}
+.gz-more{font:800 15px/1 'Plus Jakarta Sans',sans-serif;padding:16px 38px;border-radius:999px;border:0;cursor:pointer;color:#fff;background:linear-gradient(180deg,#7B45B5,#5B2A86);box-shadow:0 14px 30px rgba(91,42,134,.3);transition:transform .2s,filter .2s}
+.gz-more:hover{transform:translateY(-2px);filter:brightness(1.08)}.gz-more[disabled]{opacity:.6;cursor:wait}
+.gz-more-count{font-size:13px;color:#5E566A}
+@media(max-width:1024px){html body ul.wc-block-product-template{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media(max-width:700px){html body ul.wc-block-product-template{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}}
+</style>
+<script>
+(function(){
+var ul=document.querySelector('ul.wc-block-product-template');var nav=document.querySelector('.wp-block-query-pagination');if(!ul||!nav)return;
+function nextUrl(doc){var n=doc.querySelector('.wp-block-query-pagination a.wp-block-query-pagination-next');if(n)return n.href;var cur=doc.querySelector('.wp-block-query-pagination .page-numbers.current');if(cur){var a=cur.nextElementSibling;while(a&&a.tagName!=='A')a=a.nextElementSibling;if(a)return a.href;}return null;}
+var next=nextUrl(document);if(!next)return;
+var total=0,res=document.querySelector('.woocommerce-result-count, .wc-block-product-results-count');if(res){var m=res.textContent.match(/of\s+([\d,]+)/);if(m)total=+m[1].replace(/,/g,'');}
+nav.style.display='none';
+var wrap=document.createElement('div');wrap.className='gz-more-wrap';var cnt=document.createElement('div');cnt.className='gz-more-count';var b=document.createElement('button');b.type='button';b.className='gz-more';b.textContent='View more products';wrap.appendChild(cnt);wrap.appendChild(b);nav.parentNode.insertBefore(wrap,nav.nextSibling);
+function upd(){var n=ul.querySelectorAll(':scope>li').length;cnt.textContent=total?('Showing '+n+' of '+total+' products'):'';if(res&&total)res.textContent='Showing 1–'+n+' of '+total+' results';}upd();
+b.addEventListener('click',function(){if(!next)return;b.disabled=true;b.textContent='Loading…';
+fetch(next,{credentials:'same-origin'}).then(function(r){return r.text();}).then(function(h){var d=new DOMParser().parseFromString(h,'text/html');var items=d.querySelectorAll('ul.wc-block-product-template>li');items.forEach(function(li){li.style.opacity=0;li.style.transform='translateY(16px)';li.style.transition='opacity .5s,transform .5s';ul.appendChild(document.importNode(li,true));});
+requestAnimationFrame(function(){ul.querySelectorAll(':scope>li').forEach(function(li){li.style.opacity='';li.style.transform='';});});
+next=nextUrl(d);upd();if(next){b.disabled=false;b.textContent='View more products';}else{b.remove();cnt.textContent="You've seen all "+(total||ul.children.length)+" products";}
+try{history.replaceState(null,'',location.href);}catch(e){}
+}).catch(function(){b.disabled=false;b.textContent='View more products';});});
+})();
+</script>
+<?php }
 	static function skin_head() {
 		if (is_admin() || self::skin() !== 'luxe') return;
 		echo '<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">';
