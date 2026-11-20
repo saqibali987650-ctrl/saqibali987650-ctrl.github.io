@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.2.0';
+	const V = '1.2.1';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -714,7 +714,7 @@ JS;
 			if ($w === $q) return 1.0;
 			if (strlen($q) >= 2 && strpos($w, $q) === 0) $best = max($best, 0.8);
 			elseif (strlen($q) >= 4 && strpos($w, $q) !== false) $best = max($best, 0.6);
-			elseif (strlen($q) >= 4 && strlen($w) >= 4 && abs(strlen($w) - strlen($q)) <= 2 && levenshtein($q, $w) <= (strlen($q) >= 7 ? 2 : 1)) $best = max($best, 0.55);
+			elseif (strlen($q) >= 4 && strlen($w) >= 4 && abs(strlen($w) - strlen($q)) <= 2 && levenshtein($q, $w) <= (strlen($q) >= 6 ? 2 : 1)) $best = max($best, 0.55);
 		}
 		return $best;
 	}
@@ -727,7 +727,7 @@ JS;
 			$score = 0; $hit = 0;
 			foreach ($qt as $t) {
 				$alts = [$t];
-				if (isset($syn[$t]) && $syn[$t] !== $t) $alts[] = $syn[$t];
+				if (isset($syn[$t]) && $syn[$t] !== $t) { $st = self::tokens($syn[$t]); if ($st) $alts[] = $st[0]; }
 				$ts = 0;
 				foreach ($alts as $k => $a) {
 					$f = $k ? 0.7 : 1.0;
@@ -761,12 +761,15 @@ JS;
 		$cats = [];
 		$terms = get_terms(['taxonomy' => 'product_cat', 'hide_empty' => true, 'number' => 200]);
 		$qt = self::tokens($q);
+		$weak = ['gift', 'present', 'gifts', 'presents'];
+		$strong = array_values(array_filter($qt, function ($w) use ($weak) { return !in_array($w, $weak, true); }));
+		if ($strong) $qt = $strong;
 		$syn = self::synonyms();
 		foreach ((array) $terms as $t) {
 			if ($t->slug === 'uncategorized') continue;
 			$nt = self::tokens($t->name . ' ' . $t->slug);
 			$ok = false;
-			foreach ($qt as $w) { if (self::match_score($w, $nt) >= 0.6 || (isset($syn[$w]) && self::match_score($syn[$w], $nt) >= 0.8)) $ok = true; }
+			foreach ($qt as $w) { if (self::match_score($w, $nt) >= 0.6 || (isset($syn[$w]) && ($sw = self::tokens($syn[$w])) && self::match_score($sw[0], $nt) >= 0.8)) $ok = true; }
 			if ($ok) $cats[] = ['n' => html_entity_decode($t->name, ENT_QUOTES, 'UTF-8'), 'u' => get_term_link($t), 'c' => (int) $t->count];
 			if (count($cats) >= 3) break;
 		}
