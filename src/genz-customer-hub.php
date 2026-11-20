@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.5.8
+ * Version: 1.6.0
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.5.8';
+	const V = '1.6.0';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -1126,6 +1126,25 @@ try{history.replaceState(null,'',location.href);}catch(e){}
 		$end = strtotime('2026-12-01 00:00:00 Europe/London');
 		ob_start(); ?>
 <div class="gx gx-home">
+<nav class="cbar" aria-label="Shop by category"><?php
+		$bar = [['christmas-gifts', '🎄 Christmas'], ['black-friday-deals', 'Black Friday'], ['gifts-for-him', 'Gifts for Him'], ['gifts-for-her', 'Gifts for Her'], ['gifts-for-teens', 'Teens'], ['stocking-fillers', 'Stocking Fillers'], ['tech-gadgets', 'Smart Tech'], ['home-living', 'Home &amp; Living'], ['home-kitchen', 'Kitchen'], ['health-beauty', 'Beauty'], ['winter-warmers-cosy-gifts', 'Winter Warmers'], ['new-year-sale', 'New Year Sale'], ['clearance-sale', 'Clearance']];
+		foreach ($bar as $i => $b) { $t = get_term_by('slug', $b[0], 'product_cat'); if (!$t || !$t->count) continue; echo '<a class="' . ($i === 0 ? 'xm' : '') . '" href="' . esc_url(get_term_link($t)) . '">' . wp_kses_post($b[1]) . '</a>'; }
+		echo '<a href="' . esc_url(home_url('/shop/')) . '">Best Sellers</a>'; ?></nav>
+<section class="slider" aria-label="Offers" aria-roledescription="carousel"><div class="sl-track"><?php
+		$slides = [
+			['black-friday-deals', 'Black Friday', 'Sale', 'Up to ' . (int) max(30, $top_off) . '% off', 'on gadgets you will love', 'linear-gradient(110deg,#FBF1E6 0%,#F6E2CC 55%,#EFD2B4 100%)', '#3B1F0E', '#F26B21'],
+			['christmas-gifts', 'Christmas Gift Shop', 'New', 'Gifts from £5', 'free UK delivery on every order', 'linear-gradient(110deg,#F3F7F1 0%,#DDEBDD 55%,#C6DEC8 100%)', '#123B2A', '#C8102E'],
+			['new-year-sale', 'New Year Sale', '2027', 'Extra 20% off 2+', 'with code BUNDLE20', 'linear-gradient(110deg,#FBF6EA 0%,#F3E6C4 55%,#E9D39B 100%)', '#3A2A06', '#5B2A86'],
+			['clearance-sale', 'Clearance', 'Final stock', '30% off and more', 'when it is gone, it is gone', 'linear-gradient(110deg,#FBEFF1 0%,#F5D9DE 55%,#EDBFC7 100%)', '#4A0E1A', '#B0122C'],
+		];
+		foreach ($slides as $i => $sd) {
+			$ps = self::cat_products($sd[0], 3);
+			echo '<a class="sl" href="' . esc_url(self::term_url($sd[0])) . '" style="background:' . esc_attr($sd[5]) . ';--ink2:' . esc_attr($sd[6]) . ';--acc:' . esc_attr($sd[7]) . '"' . ($i ? ' aria-hidden="true" tabindex="-1"' : '') . '>';
+			echo '<span class="sl-txt"><span class="sl-h">' . esc_html($sd[1]) . ' <i>' . esc_html($sd[2]) . '</i></span><span class="sl-sub"><b>' . esc_html($sd[3]) . '</b> ' . esc_html($sd[4]) . '</span><span class="sl-btn">Explore now</span></span><span class="sl-pics">';
+			$tags = ['−' . (int) max(30, $top_off) . '%', 'Gift-ready', 'Free UK delivery'];
+			foreach ($ps as $k => $p) echo '<span class="sp sp' . $k . '"><img src="' . esc_url($p['big'] ?: $p['img']) . '" alt="" loading="' . ($i ? 'lazy' : 'eager') . '">' . ($p['off'] ? '<em>' . (int) $p['off'] . '% OFF</em>' : '<em>' . esc_html($tags[$k] ?? '') . '</em>') . '</span>';
+			echo '</span></a>';
+		} ?></div><div class="sl-dots"><?php for ($i = 0; $i < 4; $i++) echo '<button type="button" aria-label="Slide ' . ($i + 1) . '"' . ($i ? '' : ' class="on"') . '></button>'; ?></div></section>
 <section class="hero">
 <div>
 <span class="chip">TRENDING GADGETS &amp; GIFTS · UK</span>
@@ -1195,6 +1214,12 @@ if ($top_off) echo '<div class="seal"><small>UP TO</small><span>' . (int) $top_o
 <section class="trust rv"><div><b>Free UK delivery</b>Every order, no minimum</div><div><b>30-day returns</b>Free and easy</div><div><b>Gift-ready</b>Packed in Nottingham</div><div><b>Track &amp; chat</b>Live tracking and UK support</div></section>
 </div>
 <script>(function(){var t=document.querySelector('.gx-home .cd .t');if(!t)return;var end=+t.getAttribute('data-end')*1000;function u(){var d=Math.max(0,end-Date.now());var s=Math.floor(d/1000);var v={d:Math.floor(s/86400),h:Math.floor(s%86400/3600),m:Math.floor(s%3600/60),s:s%60};for(var k in v){var e=t.querySelector('[data-u='+k+']');if(e)e.textContent=String(v[k]).padStart(2,'0');}}u();setInterval(u,1000);})();
+(function(){var s=document.querySelector('.gx-home .slider');if(!s)return;var t=s.querySelector('.sl-track'),sl=t.children,d=s.querySelectorAll('.sl-dots button'),i=0,n=sl.length,tm;
+function go(k){i=(k+n)%n;t.style.transform='translateX(-'+(i*100)+'%)';d.forEach(function(b,j){b.classList.toggle('on',j===i);});for(var j=0;j<n;j++){sl[j].setAttribute('aria-hidden',j===i?'false':'true');sl[j].tabIndex=j===i?0:-1;}}
+function auto(){clearInterval(tm);tm=setInterval(function(){go(i+1);},5000);}
+d.forEach(function(b,j){b.onclick=function(){go(j);auto();};});s.addEventListener('mouseenter',function(){clearInterval(tm);});s.addEventListener('mouseleave',auto);
+var x0=null;s.addEventListener('touchstart',function(e){x0=e.touches[0].clientX;},{passive:true});s.addEventListener('touchend',function(e){if(x0===null)return;var dx=e.changedTouches[0].clientX-x0;if(Math.abs(dx)>40){go(i+(dx<0?1:-1));auto();}x0=null;});
+if(!matchMedia('(prefers-reduced-motion: reduce)').matches)auto();})();
 (function(){var h=document.querySelector('.gx-home');if(!h)return;var io='IntersectionObserver' in window?new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{rootMargin:'0px 0px -60px 0px'}):null;h.querySelectorAll('.rv').forEach(function(el){io?io.observe(el):el.classList.add('in');});
 h.querySelectorAll('.swipe').forEach(function(w){var t=w.querySelector('.track');function st(){w.classList.toggle('at-s',t.scrollLeft<8);w.classList.toggle('at-e',t.scrollLeft+t.clientWidth>=t.scrollWidth-8);}w.querySelector('.sw-l').onclick=function(){t.scrollBy({left:-t.clientWidth*.9,behavior:'smooth'});};w.querySelector('.sw-r').onclick=function(){t.scrollBy({left:t.clientWidth*.9,behavior:'smooth'});};t.addEventListener('scroll',st,{passive:true});st();
 var d=false,mv=false,x0,s0;t.addEventListener('pointerdown',function(e){if(e.pointerType!=='mouse')return;d=true;mv=false;x0=e.clientX;s0=t.scrollLeft;});window.addEventListener('pointerup',function(){d=false;setTimeout(function(){t.classList.remove('drag');},0);});t.addEventListener('pointermove',function(e){if(d&&Math.abs(e.clientX-x0)>6){mv=true;t.classList.add('drag');t.scrollLeft=s0-(e.clientX-x0);}});t.addEventListener('click',function(e){if(mv){e.preventDefault();mv=false;}},true);});
@@ -1323,6 +1348,35 @@ var c=h.querySelector('.hero .stage');if(c&&matchMedia('(pointer:fine)').matches
 .gx .card3 img{transform:scale(1.2)}.gx .card3{overflow:hidden}
 .gx .ti img,.gx .fan img,.gx .mos img,.gch-fan img,.gx .cat img{object-fit:cover;object-position:50% 52%}
 .gx .ti{overflow:hidden}.gx .ti img{transform:none}
+
+.gx .cbar{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:6px 0 10px;margin:0 0 12px;border-bottom:1px solid rgba(91,42,134,.12);-webkit-mask:linear-gradient(90deg,#000 92%,transparent);mask:linear-gradient(90deg,#000 92%,transparent)}
+.gx .cbar::-webkit-scrollbar{display:none}
+.gx .cbar a{flex:0 0 auto;padding:9px 14px;border-radius:999px;font-size:15px;font-weight:600;color:var(--ink)!important;white-space:nowrap;transition:background .2s,color .2s}
+.gx .cbar a:hover{background:#F1E8FA;color:var(--plum)!important}
+.gx .cbar a.xm{font-family:'Bodoni Moda',Georgia,serif;font-size:20px;font-weight:700;color:#C8102E!important;padding-right:18px}
+.gx .slider{position:relative;overflow:hidden;border-radius:26px;margin:4px 0 26px;box-shadow:0 26px 60px -30px rgba(70,30,110,.45)}
+.gx .sl-track{display:flex;transition:transform .8s cubic-bezier(.65,0,.35,1)}
+.gx .sl{flex:0 0 100%;min-height:440px;display:grid;grid-template-columns:1.05fr 1fr;align-items:center;gap:20px;padding:40px 56px;position:relative;overflow:hidden;color:var(--ink2)!important}
+.gx .sl:before{content:"";position:absolute;right:-120px;bottom:-160px;width:560px;height:560px;border-radius:50%;background:radial-gradient(circle,rgba(255,255,255,.75),transparent 65%)}
+.gx .sl-txt{position:relative;z-index:2;display:flex;flex-direction:column;align-items:flex-start;gap:18px}
+.gx .sl-h{font-family:'Bodoni Moda',Georgia,serif;font-weight:700;font-size:clamp(40px,5.4vw,82px);line-height:.98;letter-spacing:-.02em;color:var(--ink2)}
+.gx .sl-h i{display:inline-block;font-style:normal;font-family:'Plus Jakarta Sans',sans-serif;font-size:.36em;font-weight:800;background:var(--acc);color:#fff;padding:.28em .7em;border-radius:12px;transform:rotate(-8deg) translateY(-.6em);box-shadow:0 10px 22px rgba(0,0,0,.18);vertical-align:middle}
+.gx .sl-sub{font-size:clamp(17px,1.6vw,24px);font-weight:500;color:var(--ink2)}
+.gx .sl-sub b{display:inline-block;background:linear-gradient(90deg,#F7A928,#F26B21);color:#fff;padding:6px 16px;border-radius:12px;font-weight:800;margin-right:6px;box-shadow:0 10px 22px rgba(242,107,33,.3)}
+.gx .sl-btn{display:inline-flex;align-items:center;padding:16px 34px;border-radius:999px;background:var(--ink2);color:#fff;font-weight:700;font-size:17px;letter-spacing:.04em;text-transform:uppercase;transition:transform .25s}
+.gx .sl:hover .sl-btn{transform:translateY(-3px)}
+.gx .sl-pics{position:relative;height:360px;z-index:1}
+.gx .sp{position:absolute;border-radius:22px;overflow:hidden;background:#fff;box-shadow:0 24px 48px rgba(0,0,0,.2);border:4px solid #fff}
+.gx .sp img{width:100%;height:100%;object-fit:cover;transform:scale(1.25);transform-origin:50% 64%;display:block}
+.gx .sp em{position:absolute;left:10px;bottom:10px;font-style:normal;font-weight:800;font-size:13px;background:var(--acc);color:#fff;padding:5px 10px;border-radius:999px;box-shadow:0 6px 14px rgba(0,0,0,.2)}
+.gx .sp0{width:58%;height:88%;left:21%;top:4%;z-index:3;transform:rotate(-2deg)}
+.gx .sp1{width:40%;height:58%;left:0;top:30%;z-index:2;transform:rotate(-8deg)}
+.gx .sp2{width:40%;height:58%;right:0;top:20%;z-index:2;transform:rotate(7deg)}
+.gx .sl:hover .sp0{transform:rotate(0) translateY(-6px)}.gx .sp{transition:transform .6s cubic-bezier(.2,.8,.2,1)}
+.gx .sl-dots{position:absolute;left:0;right:0;bottom:16px;display:flex;justify-content:center;gap:8px;z-index:4}
+.gx .sl-dots button{width:10px;height:10px;border-radius:999px;border:0;padding:0;background:rgba(0,0,0,.2);cursor:pointer;transition:width .3s,background .3s}
+.gx .sl-dots button.on{width:28px;background:var(--plum)}
+@media(max-width:820px){.gx .sl{grid-template-columns:1fr;min-height:0;padding:26px 22px 44px;gap:8px}.gx .sl-pics{height:220px;order:-1}.gx .sl-txt{gap:12px}.gx .sl-btn{padding:12px 24px;font-size:14px}.gx .sl-sub b{padding:4px 10px}.gx .cbar a{font-size:14px;padding:8px 12px}.gx .cbar a.xm{font-size:18px}}
 CSS;
 	}
 	static function clear_home_cache() { delete_transient('genz_home_html'); }
