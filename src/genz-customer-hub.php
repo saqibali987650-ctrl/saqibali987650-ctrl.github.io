@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.4.1
+ * Version: 1.4.2
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.4.1';
+	const V = '1.4.2';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -961,6 +961,9 @@ html body .genz-sub-band{background:linear-gradient(135deg,#2A1840,#120A1E)!impo
 html body footer.wp-block-template-part{background:linear-gradient(180deg,#2A1840,#140B22)!important}
 html body footer.wp-block-template-part,html body footer.wp-block-template-part *{color:#EDE6F6}
 html body footer.wp-block-template-part a:hover{color:#F1D9A7!important}
+html body footer.wp-block-template-part h2,html body footer.wp-block-template-part h3,html body footer.wp-block-template-part h4{color:#F1D9A7!important;font-family:'Plus Jakarta Sans',sans-serif!important;font-size:13px!important;letter-spacing:.14em!important;text-transform:uppercase!important}
+html body .genz-guides-home a.gg-all{color:#5B2A86!important;font-weight:700}
+html body .genz-guides-home > p,html body .genz-guides-home > .wp-block-group > p,html body .genz-guides-home p:not([class]){color:#5E566A!important}
 html body .genz-card,html body .genz-chat-panel{color:#1E1A24}
 CSS;
 	}
@@ -1127,7 +1130,8 @@ if ($top_off) echo '<div class="seal"><small>UP TO</small><span>' . (int) $top_o
 .gx .st{color:#B8862F;font-size:12px}.gx .st span{color:var(--mut)}
 .gx .add{background:linear-gradient(180deg,var(--plum2),var(--plum));color:#fff!important;font-weight:800;font-size:12px;padding:10px 12px;border-radius:12px;white-space:nowrap}
 .gx .trust{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:14px;margin:20px 0 30px}
-.gx .trust div{border-radius:18px;padding:18px;background:#fff;border:1px solid rgba(91,42,134,.08);color:var(--mut)}.gx .trust b{color:var(--plum);display:block}
+.gx .trust div{border-radius:18px;padding:18px;background:#fff;border:1px solid rgba(91,42,134,.08);color:var(--mut);font-size:14px!important;line-height:1.5}.gx .trust b{font-size:16px}
+.gx .pc .row{flex-direction:column;align-items:stretch;gap:8px}.gx .add{text-align:center}.gx .pc .price{font-size:16px}.gx .trust b{color:var(--plum);display:block}
 @media(max-width:900px){.gx .rail{grid-template-columns:1fr}.gx .railhead{min-height:150px}.gx .grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){
 .gx .hero{gap:10px;padding-top:6px}.gx h1{font-size:40px!important}.gx .lead{font-size:16px}.gx .btn{padding:14px 18px}
