@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.3.0
+ * Version: 1.3.1
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.3.0';
+	const V = '1.3.1';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -940,12 +940,14 @@ JS;
 		nocache_headers();
 		header('X-Robots-Tag: noindex, nofollow');
 		$prods = self::preview_products(12);
-		$hero = array_slice($prods, 0, 3);
+		$hero = [];
+		foreach (self::preview_products(40) as $p) { if ((float) wp_strip_all_tags(html_entity_decode($p['now'])) && preg_replace('/[^0-9.]/', '', wp_strip_all_tags(html_entity_decode($p['now']))) >= 25) $hero[] = $p; if (count($hero) >= 3) break; }
+		if (count($hero) < 3) $hero = array_slice($prods, 0, 3);
 		$grid = array_slice($prods, 0, 8);
 		$logo = self::logo_url();
 		$cat = function ($slug) { $t = get_term_by('slug', $slug, 'product_cat'); return $t ? get_term_link($t) : home_url('/shop/'); };
 		$navs = [];
-		foreach (get_terms(['taxonomy' => 'product_cat', 'parent' => 0, 'hide_empty' => true, 'orderby' => 'count', 'order' => 'DESC', 'number' => 7]) as $t) { if ($t->slug !== 'uncategorized') $navs[] = $t; }
+		foreach (['christmas-gifts', 'gifts-for-him', 'gifts-for-her', 'tech-gadgets', 'winter-warmers-cosy-gifts', 'health-beauty'] as $sl) { $t = get_term_by('slug', $sl, 'product_cat'); if ($t) $navs[] = $t; }
 		global $wpdb;
 		$rev_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->comments} c JOIN {$wpdb->posts} p ON p.ID=c.comment_post_ID WHERE p.post_type='product' AND c.comment_approved='1' AND c.comment_type='review'");
 		$reviews = get_comments(['post_type' => 'product', 'status' => 'approve', 'type' => 'review', 'number' => 40, 'meta_query' => [['key' => 'rating', 'value' => 5]]]);
@@ -968,8 +970,9 @@ html,body{margin:0!important;padding:0;background:#FBF8F4!important}
 .gx *{box-sizing:border-box}.gx a{color:inherit;text-decoration:none}
 .gx .w{max-width:1320px;margin:0 auto;padding:0 24px}
 .gx .serif{font-family:'Bodoni Moda',Georgia,serif}
-.gx .bar{background:var(--gold2);color:#1A1206;font-size:13px;font-weight:800;letter-spacing:.05em;padding:10px 16px;display:flex;flex-wrap:wrap;justify-content:center;gap:24px}
-.gx .pv{position:fixed;left:16px;bottom:16px;z-index:99999;background:#1E1A24;color:#fff;font-size:12px;font-weight:700;padding:8px 12px;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.gx .bar span{display:inline-block}
+.gx .bar{background:var(--gold2)!important;color:#1A1206;font-size:13px;font-weight:800;letter-spacing:.05em;padding:10px 16px;display:flex;flex-wrap:wrap;justify-content:center;gap:24px}
+.gx .pv{position:fixed;right:16px;top:44px;z-index:99999;background:#1E1A24;color:#fff;font-size:12px;font-weight:700;padding:8px 12px;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
 .gx header{display:flex;flex-wrap:wrap;align-items:center;gap:22px;padding:18px 0}
 .gx header img{height:52px;width:auto}
 .gx nav{display:flex;flex-wrap:wrap;gap:22px;font-size:14px;font-weight:600;flex:1 1 360px;justify-content:center}
@@ -980,6 +983,7 @@ html,body{margin:0!important;padding:0;background:#FBF8F4!important}
 .gx .bag{background:var(--plum);color:#fff!important;border-radius:12px;padding:10px 14px;font-weight:800;font-size:14px}
 .gx .hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:30px;align-items:center;padding:24px 0 10px}
 .gx .chip{display:inline-block;background:#FFF6E2;border:1px solid rgba(201,163,91,.55);color:#8A5A12;font-size:12px;font-weight:800;letter-spacing:.16em;padding:8px 14px;border-radius:999px}
+.gx h1,.gx h2,.gx h3{color:var(--ink)!important;letter-spacing:normal!important;text-transform:none!important}
 .gx h1{font-family:'Bodoni Moda',serif;font-size:clamp(44px,6vw,78px);line-height:.98;font-weight:600;margin:18px 0}
 .gx .grad{background:linear-gradient(90deg,#5B2A86,#9B59D0,#B8862F);-webkit-background-clip:text;background-clip:text;color:transparent}
 .gx .lead{font-size:18px;line-height:1.6;color:var(--mut);max-width:500px;margin:0 0 22px}
