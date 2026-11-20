@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.7.3
+ * Version: 1.7.4
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.7.3';
+	const V = '1.7.4';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -2462,6 +2462,7 @@ class GenZ_Import {
 		register_rest_route(self::NS, '/stage', ['methods' => 'POST', 'permission_callback' => '__return_true', 'callback' => [__CLASS__, 'r_stage']]);
 		register_rest_route(self::NS, '/stage-get', ['methods' => 'GET', 'permission_callback' => [__CLASS__, 'admin'], 'callback' => function () { return get_option('genz_stage_data', []); }]);
 		register_rest_route(self::NS, '/import', ['methods' => 'POST', 'permission_callback' => [__CLASS__, 'admin'], 'callback' => [__CLASS__, 'r_import']]);
+		register_rest_route(self::NS, '/frame', ['methods' => 'POST', 'permission_callback' => [__CLASS__, 'admin'], 'callback' => [__CLASS__, 'r_frame']]);
 		register_rest_route(self::NS, '/poster', ['methods' => 'POST', 'permission_callback' => [__CLASS__, 'admin'], 'callback' => [__CLASS__, 'r_poster']]);
 	}
 	/* staging: cookie-less, key in query string, only stores supplier image lists */
@@ -2617,12 +2618,42 @@ class GenZ_Import {
 		if (!$gal) { wp_delete_post($pid, true); return new WP_Error('img', 'image download failed'); }
 		$feat = $gal[0];
 		if ($first_file) {
-			$poster = self::make_poster($first_file, $it['headline'] ?? $name, $price, $it['theme'] ?? 'toys', $it['tag'] ?? '');
+			$poster = self::make_framed($first_file, $name);
 			if (!is_wp_error($poster)) $feat = self::attach_file($poster, $pid, $name);
 		}
 		$p = wc_get_product($pid); $p->set_image_id($feat); $p->set_gallery_image_ids($feat === $gal[0] ? array_slice($gal, 1) : $gal);
 		$p->set_status('publish'); $p->save();
 		return ['ok' => true, 'id' => $pid, 'url' => get_permalink($pid), 'poster' => wp_get_attachment_url($feat)];
+	}
+	/* GenZ "Premium Collection" frame – same style as the store's existing product images */
+	static function make_framed($src_file, $slug) {
+		$up = wp_upload_dir();
+		$tpl = $up['basedir'] . '/2026/11/genz-magnetic-car-phone-holder-vacuum-mount-main.jpg';
+		if (!file_exists($tpl)) return new WP_Error('tpl', 'frame template missing');
+		$im = @imagecreatefromjpeg($tpl); $p = @imagecreatefromstring(file_get_contents($src_file));
+		if (!$im || !$p) return new WP_Error('img', 'cannot read image');
+		$X = 98; $Y = 121; $S = 1004; $r = 26;
+		$pw = imagesx($p); $ph = imagesy($p); $s = (int) (min($pw, $ph) * 0.96); $sx = (int) (($pw - $s) / 2); $sy = (int) (($ph - $s) / 2);
+		$tile = imagecreatetruecolor($S, $S); imagecopyresampled($tile, $p, 0, 0, $sx, $sy, $S, $S, $s, $s);
+		$orig = imagecreatefromjpeg($tpl);
+		imagecopy($im, $tile, $X, $Y, 0, 0, $S, $S);
+		for ($yy = 0; $yy < $r; $yy++) for ($xx = 0; $xx < $r; $xx++) {
+			if (($r - $xx) ** 2 + ($r - $yy) ** 2 <= $r * $r) continue;
+			foreach ([[$X + $xx, $Y + $yy], [$X + $S - 1 - $xx, $Y + $yy], [$X + $xx, $Y + $S - 1 - $yy], [$X + $S - 1 - $xx, $Y + $S - 1 - $yy]] as $q) imagesetpixel($im, $q[0], $q[1], imagecolorat($orig, $q[0], $q[1]));
+		}
+		imagedestroy($orig);
+		$file = $up['path'] . '/genz-' . sanitize_title($slug) . '-' . wp_generate_password(4, false, false) . '-main.jpg';
+		imagejpeg($im, $file, 90); imagedestroy($im); imagedestroy($p); imagedestroy($tile);
+		return $file;
+	}
+	static function r_frame($r) {
+		$pid = (int) $r->get_param('id'); $p = wc_get_product($pid); if (!$p) return new WP_Error('nf', 'no product');
+		$gal = $p->get_gallery_image_ids(); $srcid = $gal ? $gal[0] : $p->get_image_id(); $src = get_attached_file($srcid);
+		$old = $p->get_image_id();
+		$f = self::make_framed($src, $p->get_slug()); if (is_wp_error($f)) return $f;
+		$aid = self::attach_file($f, $pid, $p->get_name()); $p->set_image_id($aid); $p->save();
+		if ($old && $old != $aid && preg_match('/genz-poster-|genz-.*-main\.jpg$/', (string) get_attached_file($old)) && !in_array($old, $gal)) wp_delete_attachment($old, true);
+		return ['ok' => true, 'img' => wp_get_attachment_url($aid)];
 	}
 	/* rebuild poster for an existing product */
 	static function r_poster($r) {
