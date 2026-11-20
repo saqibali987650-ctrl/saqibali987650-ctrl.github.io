@@ -1,0 +1,1739 @@
+<?php
+/**
+ * Plugin Name: GenZ Customer Hub
+ * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
+ * Version: 1.2.0
+ * Author: GenZ Gadgets Store
+ * Requires Plugins: woocommerce
+ * Text Domain: genz-hub
+ */
+if (!defined('ABSPATH')) exit;
+
+final class GenZ_Hub {
+	const V = '1.2.0';
+	const NS = 'genz-hub/v1';
+
+	/* ------------------------------------------------------------------ boot */
+	static function init() {
+		register_activation_hook(__FILE__, [__CLASS__, 'activate']);
+		register_deactivation_hook(__FILE__, [__CLASS__, 'deactivate']);
+		add_action('plugins_loaded', [__CLASS__, 'maybe_upgrade']);
+		add_filter('cron_schedules', [__CLASS__, 'cron_schedules']);
+		add_action('init', [__CLASS__, 'on_init']);
+		add_action('template_redirect', [__CLASS__, 'handle_links'], 1);
+		add_action('rest_api_init', [__CLASS__, 'routes']);
+		// Smart product search.
+		add_action('save_post_product', function () { delete_transient('genz_search_index'); });
+		add_action('woocommerce_update_product', function () { delete_transient('genz_search_index'); });
+		add_action('pre_get_posts', [__CLASS__, 'search_query']);
+		// Installable dashboard (desktop + phone).
+		add_action('admin_head', [__CLASS__, 'admin_manifest_tags']);
+		add_action('wp_enqueue_scripts', [__CLASS__, 'assets']);
+		add_action('wp_footer', [__CLASS__, 'chat_widget']);
+		add_shortcode('genz_track_order', [__CLASS__, 'sc_track']);
+		add_shortcode('genz_subscribe', [__CLASS__, 'sc_subscribe']);
+		add_filter('render_block', [__CLASS__, 'footer_band'], 10, 2);
+
+		// Checkout: phone required (classic + blocks) and newsletter opt-in.
+		add_filter('woocommerce_billing_fields', function ($f) { if (isset($f['billing_phone'])) $f['billing_phone']['required'] = true; return $f; }, 20);
+		add_action('woocommerce_init', [__CLASS__, 'checkout_fields']);
+		add_action('woocommerce_store_api_checkout_order_processed', [__CLASS__, 'checkout_optin']);
+		add_action('woocommerce_checkout_order_processed', [__CLASS__, 'checkout_optin_classic'], 10, 3);
+
+		// Tracking.
+		add_action('add_meta_boxes', [__CLASS__, 'metabox']);
+		add_action('woocommerce_process_shop_order_meta', [__CLASS__, 'save_metabox'], 50);
+		add_action('genz_hub_track_cron', [__CLASS__, 'track_cron']);
+		add_action('woocommerce_order_details_after_order_table', [__CLASS__, 'order_view_tracking'], 5);
+		add_filter('woocommerce_my_account_my_orders_actions', [__CLASS__, 'orders_actions'], 10, 2);
+
+		// Email login.
+		add_action('woocommerce_before_customer_login_form', [__CLASS__, 'magic_form']);
+
+		// My account messages.
+		add_filter('woocommerce_account_menu_items', [__CLASS__, 'account_menu']);
+		add_action('woocommerce_account_messages_endpoint', [__CLASS__, 'account_messages']);
+		add_filter('woocommerce_get_query_vars', function ($v) { $v['messages'] = 'messages'; return $v; });
+
+		// Subscribers broadcast.
+		add_action('genz_hub_send_batch', [__CLASS__, 'send_batch']);
+
+		// Admin.
+		add_action('admin_menu', [__CLASS__, 'admin_menu']);
+		add_action('admin_post_genz_hub_reply', [__CLASS__, 'admin_reply']);
+		add_action('admin_post_genz_hub_thread_status', [__CLASS__, 'admin_thread_status']);
+		add_action('admin_post_genz_hub_export', [__CLASS__, 'admin_export']);
+		add_action('admin_post_genz_hub_broadcast', [__CLASS__, 'admin_broadcast']);
+		add_action('admin_post_genz_hub_sub_delete', [__CLASS__, 'admin_sub_delete']);
+		add_action('admin_post_genz_hub_quick_save', [__CLASS__, 'admin_quick_save']);
+		add_action('admin_post_genz_hub_preview', [__CLASS__, 'admin_preview']);
+		add_action('admin_post_genz_hub_smtp_save', [__CLASS__, 'admin_smtp_save']);
+		add_action('admin_post_genz_hub_smtp_test', [__CLASS__, 'admin_smtp_test']);
+		add_action('admin_post_genz_hub_quick_track', [__CLASS__, 'admin_quick_track']);
+		add_action('admin_post_genz_hub_check_now', [__CLASS__, 'admin_check_now']);
+		// Email delivery (SMTP) + log.
+		add_action('phpmailer_init', [__CLASS__, 'phpmailer'], 99);
+		add_filter('wp_mail_from', [__CLASS__, 'mail_from'], 99);
+		add_filter('wp_mail_from_name', [__CLASS__, 'mail_from_name'], 99);
+		add_filter('woocommerce_email_from_address', [__CLASS__, 'mail_from'], 99);
+		add_filter('woocommerce_email_from_name', [__CLASS__, 'mail_from_name'], 99);
+		add_filter('wp_mail', [__CLASS__, 'mail_reply_to'], 99);
+		add_action('wp_mail_succeeded', function ($d) { GenZ_Hub::log_mail($d['to'] ?? [], $d['subject'] ?? '', 'sent', ''); });
+		add_action('wp_mail_failed', function ($e) { $d = $e->get_error_data(); GenZ_Hub::log_mail($d['to'] ?? [], $d['subject'] ?? '', 'failed', $e->get_error_message()); });
+		add_action('admin_head', [__CLASS__, 'admin_css']);
+	}
+
+	/* ------------------------------------------------------------ install */
+	static function activate() {
+		self::install();
+		self::on_init();
+		flush_rewrite_rules();
+	}
+	static function deactivate() {
+		wp_clear_scheduled_hook('genz_hub_track_cron');
+		flush_rewrite_rules();
+	}
+	static function maybe_upgrade() {
+		if (get_option('genz_hub_v') !== self::V) self::install();
+	}
+	static function install() {
+		global $wpdb;
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		$c = $wpdb->get_charset_collate();
+		dbDelta("CREATE TABLE {$wpdb->prefix}genz_subscribers (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			email varchar(190) NOT NULL,
+			name varchar(120) NOT NULL DEFAULT '',
+			status varchar(20) NOT NULL DEFAULT 'subscribed',
+			source varchar(40) NOT NULL DEFAULT '',
+			token varchar(40) NOT NULL DEFAULT '',
+			created datetime NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY email (email)
+		) $c;");
+		dbDelta("CREATE TABLE {$wpdb->prefix}genz_threads (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			token varchar(40) NOT NULL,
+			user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			name varchar(120) NOT NULL DEFAULT '',
+			email varchar(190) NOT NULL DEFAULT '',
+			order_ref varchar(40) NOT NULL DEFAULT '',
+			status varchar(20) NOT NULL DEFAULT 'open',
+			unread_admin int(11) NOT NULL DEFAULT 0,
+			unread_customer int(11) NOT NULL DEFAULT 0,
+			last_preview varchar(200) NOT NULL DEFAULT '',
+			last_at datetime NOT NULL,
+			created datetime NOT NULL,
+			PRIMARY KEY  (id),
+			KEY token (token),
+			KEY user_id (user_id),
+			KEY last_at (last_at)
+		) $c;");
+		dbDelta("CREATE TABLE {$wpdb->prefix}genz_messages (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			thread_id bigint(20) unsigned NOT NULL,
+			sender varchar(20) NOT NULL,
+			body text NOT NULL,
+			created datetime NOT NULL,
+			PRIMARY KEY  (id),
+			KEY thread_id (thread_id)
+		) $c;");
+		update_option('woocommerce_checkout_phone_field', 'required');
+		self::ensure_email_logo();
+		if (!wp_next_scheduled('genz_hub_track_cron')) wp_schedule_event(time() + 300, 'genz_3h', 'genz_hub_track_cron');
+		update_option('genz_hub_v', self::V);
+	}
+	static function logo_url() {
+		$id = (int) get_option('site_logo') ?: (int) get_theme_mod('custom_logo');
+		$u = $id ? wp_get_attachment_image_url($id, 'medium') : '';
+		if (!$u) {
+			$a = get_posts(['post_type' => 'attachment', 'name' => 'genz-gadgets-logo', 'numberposts' => 1, 'fields' => 'ids', 'post_status' => 'inherit']);
+			if ($a) $u = wp_get_attachment_url($a[0]);
+		}
+		return $u ?: get_site_icon_url(256);
+	}
+	static function ensure_email_logo() {
+		if (!get_option('woocommerce_email_header_image') && ($u = self::logo_url())) update_option('woocommerce_email_header_image', $u);
+	}
+	static function cron_schedules($s) {
+		$s['genz_3h'] = ['interval' => 3 * HOUR_IN_SECONDS, 'display' => 'Every 3 hours (GenZ)'];
+		return $s;
+	}
+	static function on_init() {
+		add_rewrite_endpoint('messages', EP_ROOT | EP_PAGES);
+		if (get_option('woocommerce_checkout_phone_field') !== 'required') update_option('woocommerce_checkout_phone_field', 'required');
+		if (!wp_next_scheduled('genz_hub_track_cron')) wp_schedule_event(time() + 300, 'genz_3h', 'genz_hub_track_cron');
+	}
+
+	/* ------------------------------------------------------------ helpers */
+	static function now() { return current_time('mysql', true); }
+	static function ip() { return isset($_SERVER['REMOTE_ADDR']) ? sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR'])) : ''; }
+	static function limit($key, $max, $window) {
+		$k = 'genz_rl_' . md5($key);
+		$n = (int) get_transient($k);
+		if ($n >= $max) return false;
+		set_transient($k, $n + 1, $window);
+		return true;
+	}
+	static function track_url() {
+		$id = (int) get_option('genz_hub_track_page');
+		if (!$id) {
+			$p = get_posts(['post_type' => 'page', 'name' => 'track-order', 'numberposts' => 1, 'fields' => 'ids']);
+			if ($p) { $id = (int) $p[0]; update_option('genz_hub_track_page', $id); }
+		}
+		return $id ? get_permalink($id) : home_url('/');
+	}
+	static function mail($to, $subject, $heading, $html) {
+		if (!function_exists('WC')) return wp_mail($to, $subject, $html, ['Content-Type: text/html; charset=UTF-8']);
+		$m = WC()->mailer();
+		$body = $m->wrap_message($heading, $html);
+		$e = new WC_Email();
+		$body = apply_filters('woocommerce_mail_content', $e->style_inline($body));
+		return $m->send($to, $subject, $body);
+	}
+	static function btn($url, $label) {
+		return '<p style="margin:22px 0"><a href="' . esc_url($url) . '" style="background:#111;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block">' . esc_html($label) . '</a></p>';
+	}
+
+	/* ------------------------------------------------------------ Cainiao */
+	static function clean_no($no) { return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', (string) $no)); }
+
+	static function cainiao($no, $force = false) {
+		$no = self::clean_no($no);
+		if ($no === '' || strlen($no) < 6 || strlen($no) > 40) return ['ok' => false, 'error' => 'invalid'];
+		$ck = 'genz_cn_' . md5($no);
+		if (!$force) { $c = get_transient($ck); if (is_array($c)) return $c; }
+		$url = 'https://global.cainiao.com/global/detail.json?mailNos=' . rawurlencode($no) . '&lang=en-US&language=en-US';
+		$r = wp_remote_get($url, [
+			'timeout' => 15,
+			'headers' => [
+				'User-Agent'      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+				'Accept'          => 'application/json, text/plain, */*',
+				'Accept-Language' => 'en-GB,en;q=0.9',
+				'Referer'         => 'https://global.cainiao.com/newDetail.htm?mailNoList=' . rawurlencode($no),
+			],
+		]);
+		if (is_wp_error($r)) return ['ok' => false, 'error' => $r->get_error_message()];
+		$j = json_decode(wp_remote_retrieve_body($r), true);
+		if (!is_array($j) || empty($j['module'][0]) || !is_array($j['module'][0])) {
+			return ['ok' => false, 'error' => 'bad_response', 'code' => wp_remote_retrieve_response_code($r)];
+		}
+		$m = $j['module'][0];
+		$ev = [];
+		foreach ((array) ($m['detailList'] ?? []) as $d) {
+			if (!is_array($d)) continue;
+			$desc = '';
+			foreach (['standerdDesc', 'standardDesc', 'desc', 'actionDesc'] as $k) { if (!empty($d[$k]) && is_string($d[$k])) { $desc = $d[$k]; break; } }
+			if ($desc === '') continue;
+			$t = 0;
+			if (isset($d['time']) && is_numeric($d['time'])) $t = (int) floor($d['time'] / 1000);
+			elseif (!empty($d['timeStr'])) $t = (int) strtotime($d['timeStr']);
+			$node = '';
+			if (!empty($d['group']['nodeDesc'])) $node = $d['group']['nodeDesc'];
+			$desc = trim(preg_replace('/^\s*\[[^\]]{1,60}\]\s*/u', '', $desc));
+			if (stripos($node, 'store processing') !== false) $node = '';
+			$ev[] = [
+				't'    => $t,
+				'ts'   => $t ? wp_date('D j M Y, H:i', $t) : (isset($d['timeStr']) ? sanitize_text_field($d['timeStr']) : ''),
+				'd'    => sanitize_text_field(wp_strip_all_tags($desc)),
+				'node' => sanitize_text_field((string) $node),
+				'code' => sanitize_text_field((string) ($d['actionCode'] ?? '')),
+			];
+		}
+		usort($ev, function ($a, $b) { return $b['t'] <=> $a['t']; });
+		$status = '';
+		foreach (['statusDesc', 'status'] as $k) { if (!empty($m[$k]) && is_string($m[$k])) { $status = $m[$k]; break; } }
+		$out = [
+			'ok'      => true,
+			'no'      => $no,
+			'status'  => sanitize_text_field($status),
+			'origin'  => sanitize_text_field((string) ($m['originCountry'] ?? '')),
+			'dest'    => sanitize_text_field((string) ($m['destCountry'] ?? '')),
+			'events'  => $ev,
+			'fetched' => time(),
+		];
+		set_transient($ck, $out, 30 * MINUTE_IN_SECONDS);
+		return $out;
+	}
+
+	/** 0 placed, 1 processing, 2 shipped, 3 in transit, 4 out for delivery, 5 delivered */
+	static function stage($order, $data) {
+		$s = 0;
+		if ($order) {
+			$st = $order->get_status();
+			if (in_array($st, ['processing', 'on-hold', 'completed'], true)) $s = 1;
+		}
+		if ($data && !empty($data['ok'])) {
+			$latest = !empty($data['events'][0]) ? strtolower($data['events'][0]['d'] . ' ' . $data['events'][0]['code']) : '';
+			$txt = $latest;
+			if (!empty($data['events'])) $s = max($s, 2);
+			$st = strtolower($data['status'] ?? '');
+			if ($st === 'delivered' || $st === 'signed' || (preg_match('/delivered|signed for|_sign|collected by|picked up by recipient/', $latest) && !preg_match('/out for deliver|attempt|fail|undeliver|not delivered/', $latest))) return 5;
+			if (preg_match('/out for deliver|with (the )?courier for delivery|on vehicle|_do_depart|delivery in progress/', $latest)) return 4;
+			if (count($data['events'] ?? []) > 1 || preg_match('/transit|depart|arriv|flight|airline|customs|hub|sort|export|import|line ?haul|destination/', $txt)) $s = max($s, 3);
+		}
+		return $s;
+	}
+
+	static function order_tracking($order) {
+		$t = $order->get_meta('_genz_tracking');
+		return is_array($t) ? $t : [];
+	}
+
+	/* -------------------------------------------------------- render track */
+	static function render_tracking_html($order, $numbers, $show_order = true) {
+		$labels = ['Order placed', 'Processing', 'Shipped', 'In transit', 'Out for delivery', 'Delivered'];
+		ob_start();
+		echo '<div class="genz-trk">';
+		if ($order && $show_order) {
+			echo '<div class="genz-trk-head"><div><span class="genz-muted">Order</span><strong>#' . esc_html($order->get_order_number()) . '</strong></div>';
+			echo '<div><span class="genz-muted">Placed</span><strong>' . esc_html(wc_format_datetime($order->get_date_created())) . '</strong></div>';
+			echo '<div><span class="genz-muted">Status</span><strong>' . esc_html(wc_get_order_status_name($order->get_status())) . '</strong></div></div>';
+			echo '<ul class="genz-trk-items">';
+			foreach ($order->get_items() as $it) {
+				$p = $it->get_product();
+				$img = $p ? $p->get_image([56, 56]) : '';
+				echo '<li>' . $img . '<span>' . esc_html($it->get_name()) . ' &times; ' . (int) $it->get_quantity() . '</span></li>';
+			}
+			echo '</ul>';
+		}
+		if (!$numbers) {
+			$stage = self::stage($order, null);
+			self::progress($stage, $labels);
+			echo '<p class="genz-trk-note">Your order is being prepared. As soon as it ships we will email you the tracking number and every update after that.</p>';
+		}
+		foreach ($numbers as $n) {
+			$data = self::cainiao($n);
+			$stage = self::stage($order, $data);
+			echo '<div class="genz-trk-parcel">';
+			echo '<div class="genz-trk-no"><span class="genz-muted">Tracking number</span><strong>' . esc_html($n) . '</strong>';
+			echo '<span class="genz-pill">' . esc_html($labels[$stage]) . '</span>';
+			echo '</div>';
+			self::progress($stage, $labels);
+			if (!empty($data['ok']) && !empty($data['events'])) {
+				echo '<ol class="genz-trk-events">';
+				foreach ($data['events'] as $i => $e) {
+					echo '<li' . ($i === 0 ? ' class="is-latest"' : '') . '><span class="genz-trk-time">' . esc_html($e['ts']) . '</span><span class="genz-trk-desc">' . esc_html($e['d']) . ($e['node'] ? ' <em>(' . esc_html($e['node']) . ')</em>' : '') . '</span></li>';
+				}
+				echo '</ol>';
+			} elseif (!empty($data['ok'])) {
+				echo '<p class="genz-trk-note">Your parcel has been registered with the courier. Tracking events usually appear within 24&ndash;72 hours of dispatch, so please check back soon.</p>';
+			} else {
+				echo '<p class="genz-trk-note">Live tracking is temporarily unavailable. Please try again in a few minutes &ndash; your parcel is still on its way.</p>';
+			}
+			echo '</div>';
+		}
+		echo '</div>';
+		return ob_get_clean();
+	}
+	static function progress($stage, $labels) {
+		echo '<ol class="genz-steps">';
+		foreach ($labels as $i => $l) {
+			$cls = $i < $stage ? 'done' : ($i === $stage ? 'current' : '');
+			echo '<li class="' . esc_attr($cls) . '"><span class="genz-dot"></span><span class="genz-lbl">' . esc_html($l) . '</span></li>';
+		}
+		echo '</ol>';
+	}
+
+	/* ---------------------------------------------------------- shortcodes */
+	static function sc_track() {
+		ob_start(); ?>
+		<div class="genz-card genz-track-card" id="genz-track">
+			<h2 class="genz-h">Track your order</h2>
+			<p class="genz-muted">Enter your order number and the email you used at checkout, or just your tracking number.</p>
+			<div class="genz-tabs" role="tablist">
+				<button type="button" class="genz-tab is-active" data-tab="order">Order number</button>
+				<button type="button" class="genz-tab" data-tab="tn">Tracking number</button>
+			</div>
+			<form class="genz-track-form" data-mode="order" novalidate>
+				<div class="genz-row genz-mode-order">
+					<label>Order number<input type="text" name="order" inputmode="numeric" placeholder="e.g. 2244" autocomplete="off"></label>
+					<label>Email<input type="email" name="email" placeholder="you@example.com" autocomplete="email"></label>
+				</div>
+				<div class="genz-row genz-mode-tn" hidden>
+					<label>Tracking number<input type="text" name="tn" placeholder="e.g. LP00..." autocomplete="off"></label>
+				</div>
+				<button type="submit" class="genz-btn">Track order</button>
+				<p class="genz-msg" role="status" aria-live="polite"></p>
+			</form>
+			<div class="genz-track-result"></div>
+		</div>
+		<?php return ob_get_clean();
+	}
+	static function sc_subscribe($atts = []) {
+		$a = shortcode_atts(['title' => 'Get deals & new gadget drops first', 'text' => 'Join our list for exclusive offers, new arrivals and gift ideas. No spam, unsubscribe any time.'], $atts);
+		ob_start(); ?>
+		<div class="genz-sub">
+			<div class="genz-sub-copy"><h3><?php echo esc_html($a['title']); ?></h3><p><?php echo esc_html($a['text']); ?></p></div>
+			<form class="genz-sub-form" novalidate>
+				<input type="email" name="email" placeholder="Your email address" aria-label="Email address" required autocomplete="email">
+				<input type="text" name="website" class="genz-hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+				<button type="submit" class="genz-btn genz-btn-accent">Subscribe</button>
+				<p class="genz-msg" role="status" aria-live="polite"></p>
+			</form>
+		</div>
+		<?php return ob_get_clean();
+	}
+	static function footer_band($html, $block) {
+		if (is_admin() || ($block['blockName'] ?? '') !== 'core/template-part') return $html;
+		$slug = $block['attrs']['slug'] ?? '';
+		if ($slug !== 'footer') return $html;
+		static $done = false;
+		if ($done) return $html;
+		$done = true;
+		return '<section class="genz-sub-band">' . self::sc_subscribe() . '</section>' . $html;
+	}
+
+	/* -------------------------------------------------------------- assets */
+	static function assets() {
+		wp_register_style('genz-hub', false, [], self::V);
+		wp_enqueue_style('genz-hub');
+		wp_add_inline_style('genz-hub', self::css());
+		wp_register_script('genz-hub', false, [], self::V, true);
+		wp_enqueue_script('genz-hub');
+		$cfg = [
+			'api'      => esc_url_raw(rest_url(self::NS . '/')),
+			'nonce'    => is_user_logged_in() ? wp_create_nonce('wp_rest') : '',
+			'loggedIn' => is_user_logged_in(),
+			'chat'     => !is_admin(),
+		];
+		wp_add_inline_script('genz-hub', 'window.GENZHUB=' . wp_json_encode($cfg) . ';' . self::js());
+	}
+
+	static function css() {
+		return <<<'CSS'
+.genz-card,.genz-card p,.genz-card li,.genz-card label,.genz-card strong,.genz-card h2,.genz-card h3,.genz-chat-panel,.genz-chat-panel p,.genz-chat-panel label{color:#111}
+.genz-card a{color:#111;text-decoration:underline}
+.genz-card .genz-muted,.genz-card .genz-trk-time{color:#6b6b6b}
+.genz-chat-root [hidden],.genz-track-card [hidden],.genz-chat-panel[hidden],.genz-chat-foot[hidden],.genz-row[hidden]{display:none!important}
+.genz-chat-root label,.genz-card label{display:block!important;margin:0 0 12px!important;font-weight:600}
+.genz-chat-root input:not([type=checkbox]),.genz-chat-root textarea,.genz-card input:not([type=checkbox]),.genz-sub-form input[type=email]{display:block!important;width:100%!important;box-sizing:border-box!important;margin-top:6px!important;padding:11px 13px!important;border:1px solid #cfcfcf!important;border-radius:8px!important;background:#fff!important;color:#111!important;font:inherit!important;font-weight:400!important;box-shadow:none!important}
+.genz-chat-root input:focus,.genz-chat-root textarea:focus,.genz-card input:focus,.genz-sub-form input:focus{outline:2px solid #ffcc00!important;border-color:#111!important}
+.genz-chat-foot textarea{margin:0!important}
+.genz-sub-form input[type=email]{margin:0!important;flex:1 1 220px;width:auto!important}
+.genz-card{background:#fff;border:1px solid #e7e7e7;border-radius:14px;padding:24px;margin:24px 0;box-shadow:0 2px 12px rgba(0,0,0,.04)}
+.genz-h{margin:0 0 6px}
+.genz-muted{color:#6b6b6b;font-size:.9em;display:block}
+.genz-tabs{display:flex;gap:8px;margin:16px 0}
+.genz-tab{border:1px solid #d9d9d9;background:#f6f6f6;border-radius:999px;padding:8px 16px;cursor:pointer;font:inherit;color:#111}
+.genz-tab.is-active{background:#111;color:#fff;border-color:#111}
+.genz-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.genz-row[hidden]{display:none}
+.genz-mode-tn{grid-template-columns:1fr}
+.genz-track-form label,.genz-chat label{display:block;font-weight:600;font-size:.92em;color:#111}
+.genz-track-form input,.genz-chat input,.genz-chat textarea,.genz-sub-form input[type=email],.genz-magic input{display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:12px 14px;border:1px solid #cfcfcf;border-radius:8px;font:inherit;background:#fff;color:#111}
+.genz-btn{display:inline-block;margin-top:14px;background:#111;color:#fff;border:0;border-radius:8px;padding:12px 24px;font:inherit;font-weight:700;cursor:pointer}
+.genz-btn:hover{opacity:.88}
+.genz-btn[disabled]{opacity:.5;cursor:wait}
+.genz-btn-accent{background:#ffcc00;color:#111}
+.genz-msg{margin:10px 0 0;font-size:.92em;min-height:1em}
+.genz-msg.err{color:#b00020}.genz-msg.ok{color:#0a7a2f}
+.genz-trk{margin-top:20px}
+.genz-trk-head{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;background:#f7f7f7;border-radius:10px;padding:14px}
+.genz-trk-items{list-style:none;padding:0;margin:14px 0;display:grid;gap:8px}
+.genz-trk-items li{display:flex;align-items:center;gap:10px}
+.genz-trk-items img{width:48px;height:48px;object-fit:cover;border-radius:6px}
+.genz-trk-parcel{border:1px solid #ececec;border-radius:12px;padding:16px;margin-top:14px}
+.genz-trk-no{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.genz-trk-no .genz-muted{width:100%}
+.genz-pill{background:#fff6cc;color:#5a4500;border-radius:999px;padding:3px 10px;font-size:.82em;font-weight:600}
+.genz-steps{list-style:none;display:flex;padding:0;margin:20px 0 8px;counter-reset:s}
+.genz-steps li{flex:1;position:relative;text-align:center;font-size:.78em;color:#8a8a8a}
+.genz-steps li:before{content:"";position:absolute;top:8px;left:-50%;width:100%;height:3px;background:#e3e3e3;z-index:0}
+.genz-steps li:first-child:before{display:none}
+.genz-steps li.done:before,.genz-steps li.current:before{background:#111}
+.genz-dot{position:relative;z-index:1;display:block;width:18px;height:18px;margin:0 auto 6px;border-radius:50%;background:#e3e3e3;border:3px solid #fff;box-shadow:0 0 0 1px #e3e3e3}
+.genz-steps li.done .genz-dot{background:#111;box-shadow:0 0 0 1px #111}
+.genz-steps li.current .genz-dot{background:#ffcc00;box-shadow:0 0 0 2px #111}
+.genz-steps li.done,.genz-steps li.current{color:#111;font-weight:600}
+.genz-trk-events{list-style:none;padding:0 0 0 18px;margin:14px 0 0;border-left:2px solid #ececec}
+.genz-trk-events li{position:relative;padding:0 0 14px 14px}
+.genz-trk-events li:before{content:"";position:absolute;left:-25px;top:5px;width:10px;height:10px;border-radius:50%;background:#cfcfcf}
+.genz-trk-events li.is-latest:before{background:#ffcc00;box-shadow:0 0 0 2px #111}
+.genz-trk-time{display:block;font-size:.8em;color:#777}
+.genz-trk-desc{display:block;color:#222}
+.genz-trk-desc em{color:#777}
+.genz-trk-no strong{font-size:1.15em;letter-spacing:.5px;color:#111}
+.genz-trk-note{background:#f7f7f7;border-radius:8px;padding:12px;margin-top:12px}
+.genz-sub-band{background:#111;color:#fff;padding:36px 20px}
+.genz-sub{max-width:1100px;margin:0 auto;display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between}
+.genz-sub-copy h3{margin:0 0 4px;color:inherit;font-size:1.35em}
+.genz-sub-copy p{margin:0;opacity:.8}
+.genz-sub-form{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;flex:1 1 360px;max-width:520px}
+.genz-sub-form input[type=email]{flex:1 1 220px;margin:0}
+.genz-sub-form .genz-btn{margin:0}
+.genz-sub-form .genz-msg{width:100%;margin:0}
+.genz-sub-band .genz-msg.ok{color:#7ee2a1}.genz-sub-band .genz-msg.err{color:#ff9aa8}
+.genz-hp{position:absolute!important;left:-9999px!important;width:1px;height:1px;opacity:0}
+.genz-magic{margin-bottom:28px}
+.genz-magic form{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.genz-magic label{flex:1 1 260px;font-weight:600}
+.genz-magic .genz-btn{margin:0}
+.genz-magic .genz-msg{width:100%}
+.genz-chat-fab{position:fixed;right:18px;bottom:18px;z-index:9990;background:#111;color:#fff;border:0;border-radius:999px;padding:13px 18px;font:inherit;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.25);display:flex;align-items:center;gap:8px}
+.genz-chat-fab svg{width:20px;height:20px;fill:#ffcc00}
+.genz-chat-fab .genz-badge{background:#ffcc00;color:#111;border-radius:999px;font-size:.75em;padding:1px 7px}
+.genz-chat-panel{position:fixed;right:18px;bottom:80px;z-index:9991;width:360px;max-width:calc(100vw - 24px);height:520px;max-height:calc(100vh - 110px);background:#fff;border-radius:16px;box-shadow:0 12px 40px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden}
+.genz-chat-panel[hidden]{display:none}
+.genz-chat-top{background:#111;color:#fff;padding:14px 16px;display:flex;justify-content:space-between;align-items:center}
+.genz-chat-top strong{display:block}
+.genz-chat-top small{opacity:.75}
+.genz-chat-x{background:none;border:0;color:#fff;font-size:22px;cursor:pointer;line-height:1}
+.genz-chat-body{flex:1;overflow:auto;padding:14px;background:#f6f6f6}
+.genz-chat-start label{margin-bottom:10px}
+.genz-chat-start textarea{min-height:90px;resize:vertical}
+.genz-bubble{max-width:82%;margin:0 0 10px;padding:10px 12px;border-radius:12px;white-space:pre-wrap;word-wrap:break-word;font-size:.95em}
+.genz-bubble small{display:block;font-size:.72em;opacity:.6;margin-top:4px}
+.genz-bubble.c{margin-left:auto;background:#111;color:#fff;border-bottom-right-radius:4px}
+.genz-bubble.a{background:#fff;border:1px solid #e5e5e5;border-bottom-left-radius:4px}
+.genz-chat-foot{display:flex;gap:8px;padding:10px;border-top:1px solid #eee;background:#fff}
+.genz-chat-foot textarea{flex:1;margin:0;min-height:44px;max-height:120px;resize:none}
+.genz-chat-foot .genz-btn{margin:0;padding:10px 16px}
+.genz-chat-embed .genz-chat-panel{position:static;width:auto;max-width:none;height:560px;box-shadow:none;border:1px solid #e5e5e5}
+.genz-ss{z-index:99999;background:#fff;color:#111;border-radius:12px;box-shadow:0 14px 40px rgba(0,0,0,.28);max-height:min(72vh,620px);overflow:auto;padding:8px;font-size:15px;text-align:left}
+.genz-ss[hidden]{display:none!important}
+.genz-ss-h{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#777;padding:10px 10px 6px}
+.genz-ss a{color:#111!important;text-decoration:none!important}
+.genz-ss-p{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center;padding:8px 10px;border-radius:10px}
+.genz-ss-p:hover,.genz-ss-p:focus,.genz-ss-cat:hover,.genz-ss-cat:focus{background:#f5f2ea;outline:none}
+.genz-ss-p img{width:52px;height:52px;object-fit:cover;border-radius:8px;background:#f3f3f3}
+.genz-ss-n{line-height:1.3;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.genz-ss-n em{display:block;font-style:normal;color:#b00020;font-size:12px;font-weight:500}
+.genz-ss-st{display:block;color:#f5b301;font-size:12px;letter-spacing:1px;font-weight:400}
+.genz-ss-pr{font-weight:700;white-space:nowrap}
+.genz-ss-pr s{color:#999;font-weight:400;font-size:12px}
+.genz-ss-cat{display:block;padding:8px 10px;border-radius:8px;font-weight:600}
+.genz-ss-cat span{color:#888;font-weight:400}
+.genz-ss-chips{display:flex;flex-wrap:wrap;gap:6px;padding:2px 10px 8px}
+.genz-ss-chip{border:1px solid #ddd;background:#fafafa;border-radius:999px;padding:6px 12px;font:inherit;font-size:13px;color:#111;cursor:pointer}
+.genz-ss-chip:hover{background:#111;color:#fff;border-color:#111}
+.genz-ss-none{padding:14px 10px;color:#555}
+.genz-ss-all{display:block;margin:6px 4px 2px;padding:12px;text-align:center;background:#111;color:#fff!important;border-radius:10px;font-weight:700}
+@media (max-width:640px){.genz-row,.genz-trk-head{grid-template-columns:1fr}.genz-steps li .genz-lbl{font-size:.85em}.genz-chat-fab{padding:12px 14px;bottom:84px}.genz-chat-fab .genz-fab-txt{display:none}.genz-chat-panel{right:12px;bottom:140px;height:70vh}}
+CSS;
+	}
+
+	static function js() {
+		return <<<'JS'
+(function(){
+var C=window.GENZHUB||{};
+function api(path,opts){opts=opts||{};var h={'Content-Type':'application/json'};if(C.nonce)h['X-WP-Nonce']=C.nonce;
+ return fetch(C.api+path,{method:opts.method||'GET',headers:h,credentials:'same-origin',body:opts.body?JSON.stringify(opts.body):undefined}).then(function(r){return r.json().then(function(j){if(!r.ok)throw j;return j;});});}
+function msg(el,t,ok){if(!el)return;el.textContent=t||'';el.className='genz-msg '+(t?(ok?'ok':'err'):'');}
+function esc(s){var d=document.createElement('div');d.textContent=s==null?'':String(s);return d.innerHTML;}
+function err(e){return (e&&e.message)?e.message:'Something went wrong. Please try again.';}
+
+/* tracking */
+document.querySelectorAll('.genz-track-card').forEach(function(card){
+ var form=card.querySelector('form'),res=card.querySelector('.genz-track-result'),m=form.querySelector('.genz-msg');
+ card.querySelectorAll('.genz-tab').forEach(function(b){b.addEventListener('click',function(){
+  card.querySelectorAll('.genz-tab').forEach(function(x){x.classList.toggle('is-active',x===b);});
+  var t=b.getAttribute('data-tab');form.setAttribute('data-mode',t);
+  form.querySelector('.genz-mode-order').hidden=(t!=='order');form.querySelector('.genz-mode-tn').hidden=(t!=='tn');msg(m,'');});});
+ var q=new URLSearchParams(location.search);
+ if(q.get('tn')){card.querySelector('[data-tab=tn]').click();form.tn.value=q.get('tn');setTimeout(function(){form.requestSubmit?form.requestSubmit():form.dispatchEvent(new Event('submit'));},50);}
+ else if(q.get('order')){form.order.value=q.get('order');}
+ form.addEventListener('submit',function(e){e.preventDefault();
+  var mode=form.getAttribute('data-mode'),body={};
+  if(mode==='tn'){body.tn=form.tn.value.trim();if(!body.tn)return msg(m,'Please enter your tracking number.');}
+  else{body.order=form.order.value.trim();body.email=form.email.value.trim();if(!body.order||!body.email)return msg(m,'Please enter your order number and email.');}
+  var btn=form.querySelector('button[type=submit]');btn.disabled=true;msg(m,'Checking the latest updates...',true);res.innerHTML='';
+  api('track',{method:'POST',body:body}).then(function(j){msg(m,'');res.innerHTML=j.html;res.scrollIntoView({behavior:'smooth',block:'start'});})
+  .catch(function(e2){msg(m,err(e2));}).then(function(){btn.disabled=false;});});
+});
+
+/* subscribe */
+document.querySelectorAll('.genz-sub-form').forEach(function(f){var m=f.querySelector('.genz-msg');
+ f.addEventListener('submit',function(e){e.preventDefault();var em=f.email.value.trim();if(!/^\S+@\S+\.\S+$/.test(em))return msg(m,'Please enter a valid email address.');
+  var b=f.querySelector('button');b.disabled=true;
+  api('subscribe',{method:'POST',body:{email:em,website:f.website.value}}).then(function(j){msg(m,j.message,true);f.email.value='';}).catch(function(e2){msg(m,err(e2));}).then(function(){b.disabled=false;});});});
+
+/* magic link */
+document.querySelectorAll('.genz-magic form').forEach(function(f){var m=f.querySelector('.genz-msg');
+ f.addEventListener('submit',function(e){e.preventDefault();var em=f.email.value.trim();if(!/^\S+@\S+\.\S+$/.test(em))return msg(m,'Please enter a valid email address.');
+  var b=f.querySelector('button');b.disabled=true;
+  api('magic',{method:'POST',body:{email:em}}).then(function(j){msg(m,j.message,true);}).catch(function(e2){msg(m,err(e2));}).then(function(){b.disabled=false;});});});
+
+/* chat */
+function Chat(root,embedded){
+ var panel=root.querySelector('.genz-chat-panel'),body=root.querySelector('.genz-chat-body'),foot=root.querySelector('.genz-chat-foot'),fab=root.querySelector('.genz-chat-fab'),badge=root.querySelector('.genz-badge');
+ var timer=null,hasThread=false,last='';
+ function render(j){
+  if(!j.thread){hasThread=false;foot.hidden=true;
+   if(!body.querySelector('.genz-chat-start')){body.innerHTML='<form class="genz-chat-start"><p style="margin-top:0">Hi! Ask us anything about products, delivery or your order. We usually reply within a few hours.</p>'+
+   '<label>Your name<input name="name" required autocomplete="name" value="'+esc(j.prefill&&j.prefill.name)+'"></label>'+
+   '<label>Email<input name="email" type="email" required autocomplete="email" value="'+esc(j.prefill&&j.prefill.email)+'"></label>'+
+   '<label>Order number (optional)<input name="order" inputmode="numeric"></label>'+
+   '<label>Message<textarea name="message" required></textarea></label><input type="text" name="website" class="genz-hp" tabindex="-1" autocomplete="off">'+
+   '<button class="genz-btn" type="submit">Start chat</button><p class="genz-msg"></p></form>';
+   var f=body.querySelector('form');f.addEventListener('submit',function(e){e.preventDefault();var mm=f.querySelector('.genz-msg');
+    var E=f.elements;var d={name:E['name'].value.trim(),email:E['email'].value.trim(),order:E['order'].value.trim(),message:E['message'].value.trim(),website:E['website'].value};
+    if(!d.name||!/^\S+@\S+\.\S+$/.test(d.email)||!d.message)return msg(mm,'Please add your name, a valid email and a message.');
+    var b=f.querySelector('button');b.disabled=true;api('chat',{method:'POST',body:d}).then(render).catch(function(e2){msg(mm,err(e2));b.disabled=false;});});}
+   return;}
+  hasThread=true;foot.hidden=false;
+  var key=JSON.stringify(j.messages);if(key===last)return;last=key;
+  var h='';j.messages.forEach(function(x){h+='<div class="genz-bubble '+(x.s==='admin'?'a':'c')+'">'+esc(x.b)+'<small>'+(x.s==='admin'?'GenZ Gadgets':'You')+' &middot; '+esc(x.t)+'</small></div>';});
+  if(j.thread.status==='closed')h+='<p class="genz-muted" style="text-align:center">This conversation was marked as resolved. Send a message to reopen it.</p>';
+  body.innerHTML=h;body.scrollTop=body.scrollHeight;
+ }
+ function load(){return api('chat').then(function(j){render(j);if(badge){badge.hidden=!(j.unread>0);badge.textContent=j.unread||'';}}).catch(function(){});}
+ function open(){panel.hidden=false;if(fab)fab.setAttribute('aria-expanded','true');load();clearInterval(timer);timer=setInterval(load,12000);}
+ function close(){panel.hidden=true;if(fab)fab.setAttribute('aria-expanded','false');clearInterval(timer);}
+ if(fab)fab.addEventListener('click',function(){panel.hidden?open():close();});
+ var x=root.querySelector('.genz-chat-x');if(x)x.addEventListener('click',close);
+ var ta=foot.querySelector('textarea'),sb=foot.querySelector('button');
+ function send(){var t=ta.value.trim();if(!t)return;sb.disabled=true;api('chat',{method:'POST',body:{message:t}}).then(function(j){ta.value='';render(j);}).catch(function(e2){alertless(e2);}).then(function(){sb.disabled=false;ta.focus();});}
+ function alertless(e2){var p=document.createElement('p');p.className='genz-msg err';p.textContent=err(e2);body.appendChild(p);}
+ sb.addEventListener('click',send);ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+ if(embedded){open();}else{ if(location.hash==='#genz-chat'||location.hash==='#genz-chat-open')open(); else if(C.loggedIn||document.cookie.indexOf('genz_chat_on=1')>-1) load(); }
+}
+document.querySelectorAll('.genz-chat-root').forEach(function(r){Chat(r,r.classList.contains('genz-chat-embed'));});
+
+/* smart search */
+(function(){
+ var box=document.createElement('div');box.className='genz-ss';box.hidden=true;box.setAttribute('role','listbox');document.body.appendChild(box);
+ var cur=null,timer=null,seq=0,cache={};
+ function place(){if(!cur)return;var r=cur.getBoundingClientRect();if(window.innerWidth<700){box.style.left='8px';box.style.right='8px';box.style.width='auto';box.style.top=(r.bottom+6)+'px';box.style.position='fixed';}else{var w=Math.max(r.width,420);var l=Math.min(r.left,window.innerWidth-w-12);box.style.position='fixed';box.style.left=Math.max(8,l)+'px';box.style.right='auto';box.style.width=w+'px';box.style.top=(r.bottom+6)+'px';}}
+ function stars(n){n=Math.round(n||0);if(!n)return '';var s='';for(var i=0;i<5;i++)s+=i<n?'\u2605':'\u2606';return '<span class="genz-ss-st">'+s+'</span>';}
+ function render(j){
+  var h='';
+  if(j.popular&&!j.q){h+='<div class="genz-ss-h">Popular searches</div><div class="genz-ss-chips">';j.popular.forEach(function(p){h+='<button type="button" class="genz-ss-chip" data-q="'+esc(p)+'">'+esc(p)+'</button>';});h+='</div>';}
+  if(j.cats&&j.cats.length){h+='<div class="genz-ss-h">Categories</div>';j.cats.forEach(function(c){h+='<a class="genz-ss-cat" href="'+esc(c.u)+'">'+esc(c.n)+' <span>('+c.c+')</span></a>';});}
+  if(j.products&&j.products.length){h+='<div class="genz-ss-h">'+(j.q?'Products':'Bestsellers')+'</div>';j.products.forEach(function(p){h+='<a class="genz-ss-p" href="'+esc(p.u)+'"><img src="'+esc(p.i)+'" alt="" loading="lazy"><span class="genz-ss-n">'+esc(p.n)+stars(p.rt)+(p.st?'':'<em>Out of stock</em>')+'</span><span class="genz-ss-pr">'+(p.r?'<s>'+esc(p.r)+'</s> ':'')+esc(p.p)+'</span></a>';});}
+  else if(j.q){h+='<div class="genz-ss-none">No exact match for &ldquo;'+esc(j.q)+'&rdquo;. Try &ldquo;gifts for him&rdquo;, &ldquo;heated&rdquo; or &ldquo;christmas&rdquo;.</div>';}
+  if(j.all)h+='<a class="genz-ss-all" href="'+esc(j.all)+'">See all results for &ldquo;'+esc(j.q)+'&rdquo; &rarr;</a>';
+  box.innerHTML=h;box.hidden=false;place();
+  box.querySelectorAll('.genz-ss-chip').forEach(function(b){b.addEventListener('mousedown',function(e){e.preventDefault();cur.value=b.getAttribute('data-q');go();});});
+ }
+ function go(){var q=cur.value.trim();var my=++seq;if(cache[q]){render(cache[q]);return;}
+  fetch(C.api+'suggest?q='+encodeURIComponent(q)).then(function(r){return r.json();}).then(function(j){cache[q]=j;if(my===seq)render(j);}).catch(function(){});}
+ function attach(inp){if(inp.dataset.genzSs)return;inp.dataset.genzSs='1';inp.setAttribute('autocomplete','off');
+  if(!inp.placeholder||/search/i.test(inp.placeholder))inp.placeholder='Search gadgets & gifts...';
+  var f=inp.form;if(f&&!f.querySelector('input[name=post_type]')){var h=document.createElement('input');h.type='hidden';h.name='post_type';h.value='product';f.appendChild(h);}
+  inp.addEventListener('focus',function(){cur=inp;go();});
+  inp.addEventListener('input',function(){cur=inp;clearTimeout(timer);timer=setTimeout(go,160);});
+  inp.addEventListener('keydown',function(e){var items=[].slice.call(box.querySelectorAll('a'));var i=items.indexOf(document.activeElement);
+   if(e.key==='ArrowDown'&&items.length){e.preventDefault();(items[0]).focus();}
+   if(e.key==='Escape'){box.hidden=true;}});
+  inp.addEventListener('blur',function(){setTimeout(function(){if(!box.contains(document.activeElement))box.hidden=true;},180);});}
+ box.addEventListener('keydown',function(e){var items=[].slice.call(box.querySelectorAll('a'));var i=items.indexOf(document.activeElement);
+  if(e.key==='ArrowDown'){e.preventDefault();if(items[i+1])items[i+1].focus();}
+  if(e.key==='ArrowUp'){e.preventDefault();if(i>0)items[i-1].focus();else if(cur)cur.focus();}
+  if(e.key==='Escape'){box.hidden=true;if(cur)cur.focus();}});
+ document.addEventListener('click',function(e){if(!box.contains(e.target)&&e.target!==cur)box.hidden=true;});
+ window.addEventListener('resize',place);window.addEventListener('scroll',place,{passive:true});
+ function scan(){document.querySelectorAll('input[name=s]:not(#adminbar-search)').forEach(attach);}
+ scan();new MutationObserver(scan).observe(document.body,{childList:true,subtree:true});
+})();
+document.querySelectorAll('a[href$="#genz-chat"]').forEach(function(a){a.addEventListener('click',function(e){var f=document.querySelector('.genz-chat-root:not(.genz-chat-embed) .genz-chat-fab');if(f){e.preventDefault();f.click();}});});
+})();
+JS;
+	}
+
+	static function chat_markup($embedded = false) {
+		$fab = $embedded ? '' : '<button type="button" class="genz-chat-fab" aria-expanded="false" aria-label="Chat with us"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2z"/></svg><span class="genz-fab-txt">Chat with us</span><span class="genz-badge" hidden></span></button>';
+		return '<div class="genz-chat-root' . ($embedded ? ' genz-chat-embed' : '') . '">' . $fab .
+			'<div class="genz-chat-panel"' . ($embedded ? '' : ' hidden') . ' role="dialog" aria-label="Chat with GenZ Gadgets">' .
+			'<div class="genz-chat-top"><div><strong>GenZ Gadgets Support</strong><small>UK team &middot; we reply by email too</small></div>' . ($embedded ? '' : '<button type="button" class="genz-chat-x" aria-label="Close chat">&times;</button>') . '</div>' .
+			'<div class="genz-chat-body"></div>' .
+			'<div class="genz-chat-foot" hidden><textarea rows="1" placeholder="Type your message..." aria-label="Message" maxlength="2000"></textarea><button type="button" class="genz-btn">Send</button></div>' .
+			'</div></div>';
+	}
+	static function chat_widget() {
+		if (is_admin()) return;
+		if (function_exists('is_account_page') && is_account_page() && get_query_var('messages', null) !== null) return;
+		if (function_exists('is_checkout') && is_checkout()) return;
+		echo self::chat_markup(false); // phpcs:ignore
+	}
+
+	/* ------------------------------------------------------- smart search */
+	static function synonyms() {
+		return [
+			'xmas' => 'christmas', 'chrimbo' => 'christmas', 'santa' => 'christmas', 'stocking' => 'christmas',
+			'dad' => 'him', 'father' => 'him', 'husband' => 'him', 'boyfriend' => 'him', 'men' => 'him', 'mens' => 'him', 'man' => 'him', 'grandad' => 'him', 'brother' => 'him',
+			'mum' => 'her', 'mom' => 'her', 'mother' => 'her', 'wife' => 'her', 'girlfriend' => 'her', 'women' => 'her', 'womens' => 'her', 'woman' => 'her', 'nan' => 'her', 'sister' => 'her', 'ladies' => 'her',
+			'teen' => 'teens', 'teenager' => 'teens', 'kid' => 'kids', 'children' => 'kids', 'child' => 'kids', 'boys' => 'kids', 'girls' => 'kids',
+			'present' => 'gift', 'presents' => 'gift', 'gifts' => 'gift',
+			'warm' => 'heated', 'warmer' => 'heated', 'heating' => 'heated', 'thermal' => 'heated', 'cold' => 'heated', 'winter' => 'heated',
+			'lamp' => 'light', 'lights' => 'light', 'led' => 'light', 'projector' => 'light', 'night' => 'light',
+			'phone' => 'phone', 'mobile' => 'phone', 'iphone' => 'phone', 'samsung' => 'phone', 'charger' => 'charging', 'charge' => 'charging', 'cable' => 'charging', 'powerbank' => 'power',
+			'car' => 'car', 'vehicle' => 'car', 'driving' => 'car',
+			'skin' => 'beauty', 'skincare' => 'beauty', 'face' => 'beauty', 'facial' => 'beauty', 'spots' => 'pimple', 'acne' => 'pimple', 'spot' => 'pimple', 'hair' => 'beauty',
+			'kitchen' => 'kitchen', 'cooking' => 'kitchen', 'cook' => 'kitchen', 'blend' => 'blender', 'smoothie' => 'blender', 'coffee' => 'kitchen', 'frother' => 'milk',
+			'pet' => 'pet', 'dog' => 'pet', 'cat' => 'pet', 'puppy' => 'pet', 'bird' => 'bird', 'birds' => 'bird', 'garden' => 'outdoor',
+			'cleaning' => 'clean', 'cleaner' => 'clean', 'hoover' => 'vacuum', 'organiser' => 'storage', 'organizer' => 'storage', 'tidy' => 'storage',
+			'cheap' => 'budget', 'under' => 'budget', 'deal' => 'budget', 'deals' => 'budget', 'offer' => 'budget', 'sale' => 'budget',
+			'game' => 'gaming', 'games' => 'gaming', 'console' => 'gaming', 'retro' => 'gaming',
+			'travel' => 'travel', 'holiday' => 'travel', 'trip' => 'travel', 'gym' => 'fitness', 'workout' => 'fitness', 'sport' => 'fitness',
+			'colour' => 'color', 'grey' => 'gray', 'organise' => 'storage',
+		];
+	}
+	static function tokens($text) {
+		$text = strtolower(html_entity_decode(wp_strip_all_tags((string) $text), ENT_QUOTES, 'UTF-8'));
+		$text = preg_replace('/[^a-z0-9 ]+/', ' ', $text);
+		$stop = ['the', 'and', 'for', 'with', 'a', 'an', 'of', 'to', 'in', 'on', 'uk', 'best', 'buy', 'new', 'my', 'your', 'is', 'it', 'by', 'from', 'at', 'or'];
+		$out = [];
+		foreach (preg_split('/\s+/', $text) as $w) {
+			if ($w === '' || in_array($w, $stop, true)) continue;
+			if (strlen($w) > 4 && substr($w, -1) === 's' && substr($w, -2) !== 'ss') $w = substr($w, 0, -1);
+			$out[] = $w;
+		}
+		return $out;
+	}
+	static function search_index() {
+		$idx = get_transient('genz_search_index');
+		if (is_array($idx)) return $idx;
+		$idx = [];
+		$ids = wc_get_products(['status' => 'publish', 'limit' => -1, 'return' => 'ids', 'visibility' => 'search']);
+		foreach ($ids as $id) {
+			$p = wc_get_product($id);
+			if (!$p) continue;
+			$cats = wp_get_post_terms($id, 'product_cat', ['fields' => 'names']);
+			$tags = wp_get_post_terms($id, 'product_tag', ['fields' => 'names']);
+			$focus = get_post_meta($id, '_yoast_wpseo_focuskw', true);
+			$title_t = self::tokens($p->get_name());
+			$meta_t = self::tokens(implode(' ', (array) $cats) . ' ' . implode(' ', (array) $tags) . ' ' . $focus . ' ' . $p->get_sku());
+			$body_t = array_slice(array_unique(self::tokens($p->get_short_description() . ' ' . wp_trim_words($p->get_description(), 120, ''))), 0, 160);
+			$img = $p->get_image_id() ? wp_get_attachment_image_url($p->get_image_id(), 'thumbnail') : wc_placeholder_img_src('thumbnail');
+			$idx[] = [
+				'id' => $id, 'n' => html_entity_decode($p->get_name(), ENT_QUOTES, 'UTF-8'), 'u' => get_permalink($id), 'i' => $img,
+				'p' => wp_strip_all_tags(html_entity_decode(wc_price(wc_get_price_to_display($p)), ENT_QUOTES, 'UTF-8')),
+				'r' => $p->is_on_sale() && $p->get_regular_price() ? wp_strip_all_tags(html_entity_decode(wc_price($p->get_regular_price()), ENT_QUOTES, 'UTF-8')) : '',
+				'st' => $p->is_in_stock() ? 1 : 0, 'sales' => (int) $p->get_total_sales(), 'rt' => (float) $p->get_average_rating(),
+				'tt' => array_values(array_unique($title_t)), 'mt' => array_values(array_unique($meta_t)), 'bt' => array_values($body_t),
+				'c' => array_values((array) $cats),
+			];
+		}
+		set_transient('genz_search_index', $idx, 12 * HOUR_IN_SECONDS);
+		return $idx;
+	}
+	static function match_score($q, $words) {
+		$best = 0;
+		foreach ($words as $w) {
+			if ($w === $q) return 1.0;
+			if (strlen($q) >= 2 && strpos($w, $q) === 0) $best = max($best, 0.8);
+			elseif (strlen($q) >= 4 && strpos($w, $q) !== false) $best = max($best, 0.6);
+			elseif (strlen($q) >= 4 && strlen($w) >= 4 && abs(strlen($w) - strlen($q)) <= 2 && levenshtein($q, $w) <= (strlen($q) >= 7 ? 2 : 1)) $best = max($best, 0.55);
+		}
+		return $best;
+	}
+	static function search_products($query, $limit = 8) {
+		$qt = self::tokens($query);
+		if (!$qt) return [];
+		$syn = self::synonyms();
+		$res = [];
+		foreach (self::search_index() as $p) {
+			$score = 0; $hit = 0;
+			foreach ($qt as $t) {
+				$alts = [$t];
+				if (isset($syn[$t]) && $syn[$t] !== $t) $alts[] = $syn[$t];
+				$ts = 0;
+				foreach ($alts as $k => $a) {
+					$f = $k ? 0.7 : 1.0;
+					$ts = max($ts, $f * 3 * self::match_score($a, $p['tt']), $f * 2 * self::match_score($a, $p['mt']), $f * 0.8 * self::match_score($a, $p['bt']));
+				}
+				if ($ts > 0) $hit++;
+				$score += $ts;
+			}
+			if (!$hit) continue;
+			// Need most query words to match (all for 1-2 words).
+			$need = count($qt) <= 2 ? count($qt) : (int) ceil(count($qt) * 0.6);
+			if ($hit < $need) continue;
+			if (stripos($p['n'], trim($query)) !== false) $score += 3;
+			$score += min(1.5, log(1 + $p['sales']) / 3) + ($p['rt'] / 10) + ($p['st'] ? 0.5 : -2);
+			$res[] = [$score, $p];
+		}
+		usort($res, function ($a, $b) { return $b[0] <=> $a[0]; });
+		return array_map(function ($r) { return $r[1]; }, array_slice($res, 0, $limit));
+	}
+	static function r_suggest(WP_REST_Request $r) {
+		$q = trim(sanitize_text_field((string) $r->get_param('q')));
+		$q = mb_substr($q, 0, 80);
+		if (mb_strlen($q) < 2) {
+			// Popular picks for an empty box.
+			$idx = self::search_index();
+			usort($idx, function ($a, $b) { return $b['sales'] <=> $a['sales']; });
+			$pop = array_slice(array_filter($idx, function ($p) { return $p['st']; }), 0, 4);
+			return ['q' => $q, 'products' => array_map([__CLASS__, 'pub'], array_values($pop)), 'cats' => [], 'popular' => ['heated gilet', 'christmas gifts', 'gifts for him', 'gifts for her', 'pimple patches', 'galaxy projector'], 'all' => ''];
+		}
+		$found = self::search_products($q, 8);
+		$cats = [];
+		$terms = get_terms(['taxonomy' => 'product_cat', 'hide_empty' => true, 'number' => 200]);
+		$qt = self::tokens($q);
+		$syn = self::synonyms();
+		foreach ((array) $terms as $t) {
+			if ($t->slug === 'uncategorized') continue;
+			$nt = self::tokens($t->name . ' ' . $t->slug);
+			$ok = false;
+			foreach ($qt as $w) { if (self::match_score($w, $nt) >= 0.6 || (isset($syn[$w]) && self::match_score($syn[$w], $nt) >= 0.8)) $ok = true; }
+			if ($ok) $cats[] = ['n' => html_entity_decode($t->name, ENT_QUOTES, 'UTF-8'), 'u' => get_term_link($t), 'c' => (int) $t->count];
+			if (count($cats) >= 3) break;
+		}
+		return ['q' => $q, 'products' => array_map([__CLASS__, 'pub'], $found), 'cats' => $cats, 'all' => add_query_arg(['s' => $q, 'post_type' => 'product'], home_url('/'))];
+	}
+	static function pub($p) { return ['n' => $p['n'], 'u' => $p['u'], 'i' => $p['i'], 'p' => $p['p'], 'r' => $p['r'], 'st' => $p['st'], 'rt' => $p['rt']]; }
+	static function search_query($q) {
+		if (is_admin() || !$q->is_main_query() || !$q->is_search()) return;
+		$s = $q->get('s');
+		if (!$s) return;
+		$found = self::search_products($s, 60);
+		$q->set('post_type', 'product');
+		if ($found) {
+			$q->set('post__in', array_column($found, 'id'));
+			$q->set('orderby', 'post__in');
+			$q->set('s', '');
+			$q->set('genz_s', $s);
+			add_filter('get_search_query', function ($v) use ($s) { return $v === '' ? $s : $v; });
+			$q->is_search = true;
+		}
+	}
+
+	/* --------------------------------------------------- installable admin */
+	static function r_manifest() {
+		$icon = self::logo_url() ?: get_site_icon_url(512);
+		$r = new WP_REST_Response([
+			'name' => 'GenZ Hub - GenZ Gadgets Store',
+			'short_name' => 'GenZ Hub',
+			'start_url' => admin_url('admin.php?page=genz-hub'),
+			'scope' => admin_url(),
+			'display' => 'standalone',
+			'background_color' => '#111111',
+			'theme_color' => '#111111',
+			'icons' => array_values(array_filter([
+				get_site_icon_url(192) ? ['src' => get_site_icon_url(192), 'sizes' => '192x192', 'type' => 'image/png'] : null,
+				get_site_icon_url(512) ? ['src' => get_site_icon_url(512), 'sizes' => '512x512', 'type' => 'image/png'] : null,
+				$icon ? ['src' => $icon, 'sizes' => 'any', 'type' => 'image/png'] : null,
+			])),
+		]);
+		$r->header('Content-Type', 'application/manifest+json');
+		return $r;
+	}
+	static function admin_manifest_tags() {
+		if (!current_user_can('manage_woocommerce')) return;
+		echo '<link rel="manifest" href="' . esc_url(rest_url(self::NS . '/manifest')) . '"><meta name="theme-color" content="#111111"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="GenZ Hub">';
+		if ($i = get_site_icon_url(180)) echo '<link rel="apple-touch-icon" href="' . esc_url($i) . '">';
+	}
+
+	/* ------------------------------------------------------------- routes */
+	static function routes() {
+		$pub = '__return_true';
+		register_rest_route(self::NS, '/track', ['methods' => 'POST', 'callback' => [__CLASS__, 'r_track'], 'permission_callback' => $pub]);
+		register_rest_route(self::NS, '/subscribe', ['methods' => 'POST', 'callback' => [__CLASS__, 'r_subscribe'], 'permission_callback' => $pub]);
+		register_rest_route(self::NS, '/magic', ['methods' => 'POST', 'callback' => [__CLASS__, 'r_magic'], 'permission_callback' => $pub]);
+		register_rest_route(self::NS, '/chat', [
+			['methods' => 'GET', 'callback' => [__CLASS__, 'r_chat_get'], 'permission_callback' => $pub],
+			['methods' => 'POST', 'callback' => [__CLASS__, 'r_chat_post'], 'permission_callback' => $pub],
+		]);
+		register_rest_route(self::NS, '/suggest', ['methods' => 'GET', 'callback' => [__CLASS__, 'r_suggest'], 'permission_callback' => '__return_true']);
+		register_rest_route(self::NS, '/manifest', ['methods' => 'GET', 'callback' => [__CLASS__, 'r_manifest'], 'permission_callback' => '__return_true']);
+		register_rest_route(self::NS, '/cainiao-test', ['methods' => 'GET', 'callback' => function ($r) {
+			return self::cainiao($r->get_param('n'), true);
+		}, 'permission_callback' => function () { return current_user_can('manage_woocommerce'); }]);
+		register_rest_route(self::NS, '/status', ['methods' => 'GET', 'callback' => function () {
+			global $wpdb;
+			return [
+				'v' => self::V,
+				'phone' => get_option('woocommerce_checkout_phone_field'),
+				'subs' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}genz_subscribers WHERE status='subscribed'"),
+				'threads' => (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}genz_threads"),
+				'active_tracking' => array_keys((array) get_option('genz_hub_active', [])),
+				'cron' => wp_next_scheduled('genz_hub_track_cron'),
+				'track_url' => self::track_url(),
+			];
+		}, 'permission_callback' => function () { return current_user_can('manage_woocommerce'); }]);
+	}
+	static function fail($m, $code = 400) { return new WP_Error('genz', $m, ['status' => $code]); }
+
+	static function r_track(WP_REST_Request $r) {
+		if (!self::limit('trk' . self::ip(), 30, 10 * MINUTE_IN_SECONDS)) return self::fail('Too many attempts. Please wait a few minutes and try again.', 429);
+		$tn = self::clean_no($r->get_param('tn'));
+		if ($tn !== '') {
+			if (strlen($tn) < 6) return self::fail('That tracking number looks too short. Please check and try again.');
+			return ['html' => self::render_tracking_html(null, [$tn], false)];
+		}
+		$num = preg_replace('/[^0-9]/', '', (string) $r->get_param('order'));
+		$email = sanitize_email((string) $r->get_param('email'));
+		if (!$num || !is_email($email)) return self::fail('Please enter your order number and a valid email address.');
+		$order = wc_get_order((int) $num);
+		if (!$order || $order instanceof WC_Order_Refund || strtolower($order->get_billing_email()) !== strtolower($email)) {
+			return self::fail('We could not find an order with that number and email. Please check both and try again, or message us using the chat button.', 404);
+		}
+		return ['html' => self::render_tracking_html($order, array_column(self::order_tracking($order), 'no'), true)];
+	}
+
+	static function add_subscriber($email, $name = '', $source = 'form') {
+		global $wpdb;
+		$email = sanitize_email($email);
+		if (!is_email($email)) return false;
+		$t = $wpdb->prefix . 'genz_subscribers';
+		$row = $wpdb->get_row($wpdb->prepare("SELECT id,status FROM $t WHERE email=%s", $email));
+		if ($row) {
+			if ($row->status !== 'subscribed') $wpdb->update($t, ['status' => 'subscribed', 'source' => $source], ['id' => $row->id]);
+			return 'exists';
+		}
+		$wpdb->insert($t, ['email' => $email, 'name' => sanitize_text_field($name), 'status' => 'subscribed', 'source' => $source, 'token' => wp_generate_password(32, false), 'created' => self::now()]);
+		return 'new';
+	}
+	static function r_subscribe(WP_REST_Request $r) {
+		if ($r->get_param('website')) return ['message' => 'Thanks for subscribing!'];
+		if (!self::limit('sub' . self::ip(), 8, HOUR_IN_SECONDS)) return self::fail('Too many attempts. Please try again later.', 429);
+		$email = sanitize_email((string) $r->get_param('email'));
+		if (!is_email($email)) return self::fail('Please enter a valid email address.');
+		$res = self::add_subscriber($email, '', 'website');
+		if ($res === 'new') {
+			self::mail($email, 'Welcome to GenZ Gadgets Store', 'You are on the list!', '<p>Thanks for subscribing. You will be the first to hear about new gadgets, gift ideas and exclusive deals.</p>' . self::btn(home_url('/shop/'), 'Shop the latest gadgets') . '<p style="font-size:12px;color:#777">Free UK delivery &middot; 30-day returns</p>');
+		}
+		return ['message' => $res === 'exists' ? 'You are already subscribed - thank you!' : 'Thanks for subscribing! Check your inbox for a welcome email.'];
+	}
+
+	/* ------------------------------------------------------------- magic */
+	static function magic_form() {
+		if (is_user_logged_in()) return;
+		echo '<div class="genz-card genz-magic"><h2 class="genz-h">Sign in with your email</h2><p class="genz-muted">No password needed. Enter the email you used to order and we will send you a secure sign-in link to see your orders and tracking.</p><form novalidate><label>Email address<input type="email" name="email" autocomplete="email" required></label><button class="genz-btn" type="submit">Email me a sign-in link</button><p class="genz-msg" role="status" aria-live="polite"></p></form></div>';
+	}
+	static function r_magic(WP_REST_Request $r) {
+		$email = sanitize_email((string) $r->get_param('email'));
+		if (!is_email($email)) return self::fail('Please enter a valid email address.');
+		if (!self::limit('ml' . self::ip(), 6, 15 * MINUTE_IN_SECONDS) || !self::limit('mle' . strtolower($email), 3, 15 * MINUTE_IN_SECONDS)) {
+			return self::fail('Too many requests. Please wait a few minutes and try again.', 429);
+		}
+		$generic = ['message' => 'If we have orders or an account for that email, a sign-in link is on its way. It is valid for 20 minutes - please check your spam folder too.'];
+		$user = get_user_by('email', $email);
+		if ($user && user_can($user, 'edit_posts')) return $generic; // staff must use their password
+		$has = $user ? true : (bool) wc_get_orders(['billing_email' => $email, 'limit' => 1, 'return' => 'ids', 'type' => 'shop_order']);
+		if (!$has) return $generic;
+		$tok = wp_generate_password(40, false);
+		set_transient('genz_ml_' . hash('sha256', $tok), strtolower($email), 20 * MINUTE_IN_SECONDS);
+		$url = add_query_arg('genz_ml', $tok, wc_get_page_permalink('myaccount'));
+		self::mail($email, 'Your GenZ Gadgets sign-in link', 'Sign in to your account', '<p>Hi,</p><p>Tap the button below to sign in and see your orders, tracking updates and messages. This link works once and expires in 20 minutes.</p>' . self::btn($url, 'Sign in to my account') . '<p style="font-size:12px;color:#777">If you did not ask for this, you can ignore this email.</p>');
+		return $generic;
+	}
+
+	static function handle_links() {
+		// Magic login.
+		if (!empty($_GET['genz_ml'])) {
+			$tok = sanitize_text_field(wp_unslash($_GET['genz_ml']));
+			$k = 'genz_ml_' . hash('sha256', $tok);
+			$email = get_transient($k);
+			$acct = wc_get_page_permalink('myaccount');
+			if (!$email) { wp_safe_redirect(add_query_arg('genz_ml_expired', '1', $acct)); exit; }
+			delete_transient($k);
+			$user = get_user_by('email', $email);
+			if ($user && user_can($user, 'edit_posts')) { wp_safe_redirect($acct); exit; }
+			if (!$user) {
+				$uid = wc_create_new_customer($email, wc_create_new_customer_username($email), wp_generate_password(24));
+				if (is_wp_error($uid)) { wp_safe_redirect($acct); exit; }
+				$orders = wc_get_orders(['billing_email' => $email, 'limit' => 1, 'orderby' => 'date', 'order' => 'DESC', 'type' => 'shop_order']);
+				if ($orders) {
+					$o = $orders[0];
+					$c = new WC_Customer($uid);
+					$c->set_first_name($o->get_billing_first_name());
+					$c->set_last_name($o->get_billing_last_name());
+					foreach (['first_name', 'last_name', 'company', 'address_1', 'address_2', 'city', 'state', 'postcode', 'country', 'phone'] as $f) {
+						$g = 'get_billing_' . $f; $s = 'set_billing_' . $f;
+						if (is_callable([$o, $g]) && is_callable([$c, $s])) $c->$s($o->$g());
+					}
+					$c->set_billing_email($email);
+					$c->save();
+				}
+				$user = get_user_by('id', $uid);
+			}
+			if (function_exists('wc_update_new_customer_past_orders')) wc_update_new_customer_past_orders($user->ID);
+			wp_set_current_user($user->ID);
+			wp_set_auth_cookie($user->ID, true);
+			wp_safe_redirect(wc_get_account_endpoint_url('orders'));
+			exit;
+		}
+		if (!empty($_GET['genz_ml_expired']) && function_exists('wc_add_notice') && is_account_page() && !is_user_logged_in()) {
+			wc_add_notice('That sign-in link has expired or was already used. Please request a new one below.', 'error');
+		}
+		// Chat deep link from reply email.
+		if (!empty($_GET['genz_chat'])) {
+			$tok = sanitize_text_field(wp_unslash($_GET['genz_chat']));
+			if (self::thread_by_token($tok)) self::set_chat_cookie($tok);
+			wp_safe_redirect(home_url('/#genz-chat'));
+			exit;
+		}
+		// Unsubscribe.
+		if (!empty($_GET['genz_unsub'])) {
+			global $wpdb;
+			$tok = sanitize_text_field(wp_unslash($_GET['genz_unsub']));
+			if (strlen($tok) >= 20) $wpdb->update($wpdb->prefix . 'genz_subscribers', ['status' => 'unsubscribed'], ['token' => $tok]);
+			wp_die('<h2>You have been unsubscribed</h2><p>You will no longer receive marketing emails from GenZ Gadgets Store. Order and delivery emails are not affected.</p><p><a href="' . esc_url(home_url('/')) . '">Back to the shop</a></p>', 'Unsubscribed', ['response' => 200]);
+		}
+	}
+
+	/* ------------------------------------------------------------- chat */
+	static function set_chat_cookie($tok) {
+		$args = ['expires' => time() + YEAR_IN_SECONDS, 'path' => COOKIEPATH ?: '/', 'domain' => COOKIE_DOMAIN, 'secure' => is_ssl(), 'httponly' => true, 'samesite' => 'Lax'];
+		setcookie('genz_chat', $tok, $args);
+		$args['httponly'] = false;
+		setcookie('genz_chat_on', '1', $args);
+		$_COOKIE['genz_chat'] = $tok;
+	}
+	static function thread_by_token($tok) {
+		global $wpdb;
+		if (!is_string($tok) || strlen($tok) < 20) return null;
+		return $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}genz_threads WHERE token=%s", $tok));
+	}
+	static function current_thread() {
+		global $wpdb;
+		$t = null;
+		if (!empty($_COOKIE['genz_chat'])) $t = self::thread_by_token(sanitize_text_field(wp_unslash($_COOKIE['genz_chat'])));
+		$uid = get_current_user_id();
+		if (!$t && $uid) {
+			$t = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}genz_threads WHERE user_id=%d ORDER BY last_at DESC LIMIT 1", $uid));
+		}
+		if ($t && $uid && !(int) $t->user_id) $wpdb->update($wpdb->prefix . 'genz_threads', ['user_id' => $uid], ['id' => $t->id]);
+		return $t;
+	}
+	static function thread_payload($t) {
+		global $wpdb;
+		if (!$t) {
+			$pre = [];
+			if (is_user_logged_in()) { $u = wp_get_current_user(); $pre = ['name' => trim($u->first_name . ' ' . $u->last_name) ?: $u->display_name, 'email' => $u->user_email]; }
+			return ['thread' => null, 'messages' => [], 'unread' => 0, 'prefill' => $pre];
+		}
+		$rows = $wpdb->get_results($wpdb->prepare("SELECT sender,body,created FROM {$wpdb->prefix}genz_messages WHERE thread_id=%d ORDER BY id ASC LIMIT 300", $t->id));
+		$msgs = [];
+		foreach ($rows as $m) $msgs[] = ['s' => $m->sender, 'b' => $m->body, 't' => wp_date('j M, H:i', strtotime($m->created . ' UTC'))];
+		return ['thread' => ['name' => $t->name, 'status' => $t->status], 'messages' => $msgs, 'unread' => (int) $t->unread_customer];
+	}
+	static function r_chat_get(WP_REST_Request $r) {
+		global $wpdb;
+		$t = self::current_thread();
+		$p = self::thread_payload($t);
+		if ($t && $t->unread_customer) $wpdb->update($wpdb->prefix . 'genz_threads', ['unread_customer' => 0], ['id' => $t->id]);
+		return $p;
+	}
+	static function r_chat_post(WP_REST_Request $r) {
+		global $wpdb;
+		if ($r->get_param('website')) return self::fail('Message could not be sent.');
+		if (!self::limit('chat' . self::ip(), 12, 5 * MINUTE_IN_SECONDS)) return self::fail('You are sending messages too quickly. Please wait a moment.', 429);
+		$body = trim(sanitize_textarea_field((string) $r->get_param('message')));
+		if ($body === '') return self::fail('Please type a message.');
+		if (mb_strlen($body) > 2000) $body = mb_substr($body, 0, 2000);
+		$tt = $wpdb->prefix . 'genz_threads';
+		$t = self::current_thread();
+		$new = false;
+		if (!$t) {
+			$name = sanitize_text_field((string) $r->get_param('name'));
+			$email = sanitize_email((string) $r->get_param('email'));
+			if ($name === '' || !is_email($email)) return self::fail('Please add your name and a valid email.');
+			$tok = wp_generate_password(40, false);
+			$wpdb->insert($tt, [
+				'token' => $tok, 'user_id' => get_current_user_id(), 'name' => mb_substr($name, 0, 120), 'email' => $email,
+				'order_ref' => substr(preg_replace('/[^0-9A-Za-z-]/', '', (string) $r->get_param('order')), 0, 40),
+				'status' => 'open', 'last_at' => self::now(), 'created' => self::now(),
+			]);
+			$t = self::thread_by_token($tok);
+			self::set_chat_cookie($tok);
+			$new = true;
+		}
+		$wpdb->insert($wpdb->prefix . 'genz_messages', ['thread_id' => $t->id, 'sender' => 'customer', 'body' => $body, 'created' => self::now()]);
+		$wpdb->query($wpdb->prepare("UPDATE $tt SET unread_admin=unread_admin+1, status='open', last_at=%s, last_preview=%s WHERE id=%d", self::now(), mb_substr($body, 0, 190), $t->id));
+		// Notify the shop (throttled per thread).
+		if ($new || !get_transient('genz_chat_n_' . $t->id)) {
+			set_transient('genz_chat_n_' . $t->id, 1, 10 * MINUTE_IN_SECONDS);
+			$link = admin_url('admin.php?page=genz-inbox&thread=' . (int) $t->id);
+			self::mail(get_option('admin_email'), 'New customer message from ' . $t->name, 'New message in your inbox', '<p><strong>' . esc_html($t->name) . '</strong> (' . esc_html($t->email) . ')' . ($t->order_ref ? ' &middot; Order #' . esc_html($t->order_ref) : '') . ' wrote:</p><blockquote style="border-left:3px solid #ffcc00;margin:0;padding:8px 14px;background:#f7f7f7">' . nl2br(esc_html($body)) . '</blockquote>' . self::btn($link, 'Reply in dashboard'));
+		}
+		if ($new) {
+			self::mail($t->email, 'We got your message - GenZ Gadgets Store', 'Thanks, ' . $t->name . '!', '<p>We have received your message and a member of our UK team will reply shortly. You will get our reply by email, and you can continue the chat on our website any time.</p><blockquote style="border-left:3px solid #ffcc00;margin:0;padding:8px 14px;background:#f7f7f7">' . nl2br(esc_html($body)) . '</blockquote>' . self::btn(add_query_arg('genz_chat', $t->token, home_url('/')), 'Open the conversation'));
+		}
+		$t = self::thread_by_token($t->token);
+		return self::thread_payload($t);
+	}
+
+	/* ----------------------------------------------------- my account */
+	static function account_menu($items) {
+		$out = [];
+		foreach ($items as $k => $v) {
+			$out[$k] = $v;
+			if ($k === 'orders') $out['messages'] = 'Messages';
+		}
+		if (!isset($out['messages'])) $out['messages'] = 'Messages';
+		return $out;
+	}
+	static function account_messages() {
+		echo '<h2>Messages</h2><p>Chat with our UK support team about any order or product. We reply here and by email.</p>';
+		echo self::chat_markup(true); // phpcs:ignore
+	}
+	static function order_view_tracking($order) {
+		if (!$order instanceof WC_Order) return;
+		if (!is_account_page() && !is_wc_endpoint_url('view-order')) return;
+		echo '<section class="genz-card" id="genz-track-order"><h2 class="genz-h">Delivery tracking</h2>' . self::render_tracking_html($order, array_column(self::order_tracking($order), 'no'), false) . '<p class="genz-muted" style="margin-top:14px">Questions about this order? <a href="' . esc_url(wc_get_account_endpoint_url('messages')) . '">Send us a message</a>.</p></section>'; // phpcs:ignore
+	}
+	static function orders_actions($actions, $order) {
+		$actions['genz_track'] = ['url' => $order->get_view_order_url() . '#genz-track-order', 'name' => 'Track'];
+		return $actions;
+	}
+
+	/* ------------------------------------------------------ checkout */
+	static function checkout_fields() {
+		if (!function_exists('woocommerce_register_additional_checkout_field')) return;
+		try {
+			woocommerce_register_additional_checkout_field([
+				'id' => 'genz/newsletter',
+				'label' => 'Email me exclusive deals and new gadget drops (optional)',
+				'location' => 'contact',
+				'type' => 'checkbox',
+				'required' => false,
+			]);
+		} catch (\Throwable $e) {}
+	}
+	static function checkout_optin($order) {
+		if (!$order instanceof WC_Order) return;
+		$yes = false;
+		foreach ($order->get_meta_data() as $m) {
+			$d = $m->get_data();
+			if (substr($d['key'], -15) === 'genz/newsletter' && ($d['value'] === true || $d['value'] === '1' || $d['value'] === 1 || $d['value'] === 'true')) $yes = true;
+		}
+		if ($yes) self::add_subscriber($order->get_billing_email(), trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name()), 'checkout');
+	}
+	static function checkout_optin_classic($order_id, $data, $order) { self::checkout_optin($order); }
+
+	/* ------------------------------------------------- tracking admin */
+	static function metabox() {
+		$screen = function_exists('wc_get_page_screen_id') ? wc_get_page_screen_id('shop-order') : 'shop_order';
+		add_meta_box('genz-tracking', 'Tracking & customer updates', [__CLASS__, 'metabox_html'], $screen, 'side', 'high');
+	}
+	static function metabox_html($post_or_order) {
+		$order = ($post_or_order instanceof WC_Order) ? $post_or_order : wc_get_order($post_or_order->ID);
+		if (!$order) return;
+		wp_nonce_field('genz_trk_save', 'genz_trk_nonce');
+		$list = self::order_tracking($order);
+		if ($list) {
+			echo '<ul style="margin:0 0 10px">';
+			foreach ($list as $i => $t) {
+				$d = get_transient('genz_cn_' . md5($t['no']));
+				$st = is_array($d) && !empty($d['events'][0]) ? $d['events'][0]['d'] : 'Waiting for first scan';
+				echo '<li style="border-bottom:1px solid #eee;padding:6px 0"><strong>' . esc_html($t['no']) . '</strong><br><small>' . esc_html($st) . '</small><br><label><input type="checkbox" name="genz_trk_remove[]" value="' . (int) $i . '"> Remove</label></li>';
+			}
+			echo '</ul>';
+		}
+		echo '<p><label for="genz_trk_new"><strong>Add Cainiao tracking number</strong></label><input type="text" id="genz_trk_new" name="genz_trk_new" style="width:100%" placeholder="e.g. LP00..."></p>';
+		echo '<p><label><input type="checkbox" name="genz_trk_notify" value="1" checked> Email the customer now</label></p>';
+		echo '<p><label><input type="checkbox" name="genz_trk_complete" value="1"> Also mark order as Completed</label></p>';
+		echo '<p class="description">Customers get an email whenever the parcel status changes (checked every 3 hours) and can follow it on <a href="' . esc_url(self::track_url()) . '" target="_blank">your tracking page</a>.</p>';
+	}
+	static function save_metabox($order_id) {
+		if (empty($_POST['genz_trk_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['genz_trk_nonce'])), 'genz_trk_save')) return;
+		if (!current_user_can('edit_shop_orders')) return;
+		$order = wc_get_order($order_id);
+		if (!$order) return;
+		$list = self::order_tracking($order);
+		if (!empty($_POST['genz_trk_remove'])) {
+			foreach ((array) $_POST['genz_trk_remove'] as $i) unset($list[(int) $i]);
+			$list = array_values($list);
+		}
+		$new = self::clean_no(isset($_POST['genz_trk_new']) ? wp_unslash($_POST['genz_trk_new']) : '');
+		$added = false;
+		if ($new && strlen($new) >= 6 && !in_array($new, array_column($list, 'no'), true)) {
+			$list[] = ['no' => $new, 'carrier' => 'cainiao', 'added' => time()];
+			$added = true;
+		}
+		$order->update_meta_data('_genz_tracking', $list);
+		$order->save();
+		$active = (array) get_option('genz_hub_active', []);
+		if ($list) $active[$order->get_id()] = 1; else unset($active[$order->get_id()]);
+		update_option('genz_hub_active', $active, false);
+		if ($added) {
+			$order->add_order_note('Tracking number ' . $new . ' added.');
+			if (!empty($_POST['genz_trk_notify'])) self::email_shipped($order, $new);
+			$d = self::cainiao($new, true);
+			if (!empty($d['events'][0])) $order->update_meta_data('_genz_trk_last_' . $new, md5($d['events'][0]['d'] . $d['events'][0]['t']));
+			$order->save();
+			if (!empty($_POST['genz_trk_complete']) && $order->get_status() !== 'completed') $order->update_status('completed', 'Marked as shipped with tracking.');
+		}
+	}
+	static function track_link($order, $no = '') {
+		return $no ? add_query_arg('tn', rawurlencode($no), self::track_url()) : self::track_url();
+	}
+	static function items_html($order) {
+		$h = '<h3 style="margin:22px 0 8px">Your items</h3><table cellpadding="8" cellspacing="0" style="width:100%;border-collapse:collapse;margin:0 0 12px;border:1px solid #eee">';
+		foreach ($order->get_items() as $it) {
+			$p = $it->get_product();
+			$img = '';
+			if ($p && $p->get_image_id()) { $src = wp_get_attachment_image_url($p->get_image_id(), 'thumbnail'); if ($src) $img = '<img src="' . esc_url($src) . '" width="64" height="64" alt="" style="border-radius:6px;display:block;object-fit:cover">'; }
+			$link = $p ? get_permalink($p->get_parent_id() ?: $p->get_id()) : '';
+			$h .= '<tr><td style="border-bottom:1px solid #eee;width:72px">' . $img . '</td><td style="border-bottom:1px solid #eee">' . ($link ? '<a href="' . esc_url($link) . '" style="color:#111;font-weight:bold;text-decoration:none">' . esc_html($it->get_name()) . '</a>' : '<strong>' . esc_html($it->get_name()) . '</strong>') . '<br><span style="color:#777">Qty ' . (int) $it->get_quantity() . '</span></td><td style="border-bottom:1px solid #eee;text-align:right;white-space:nowrap">' . wp_kses_post($order->get_formatted_line_subtotal($it)) . '</td></tr>';
+		}
+		$h .= '<tr><td colspan="2" style="text-align:right"><strong>Total</strong></td><td style="text-align:right;white-space:nowrap"><strong>' . wp_kses_post($order->get_formatted_order_total()) . '</strong></td></tr>';
+		return $h . '</table>';
+	}
+	static function progress_email($stage) {
+		$labels = ['Ordered', 'Processing', 'Shipped', 'In transit', 'Out for delivery', 'Delivered'];
+		$h = '<table cellpadding="0" cellspacing="0" style="width:100%;margin:16px 0"><tr>';
+		foreach ($labels as $i => $l) {
+			$on = $i <= $stage;
+			$h .= '<td style="text-align:center;font-size:11px;color:' . ($on ? '#111' : '#aaa') . ';font-weight:' . ($on ? 'bold' : 'normal') . '"><div style="height:6px;margin:0 2px 6px;border-radius:3px;background:' . ($i === $stage ? '#ffcc00' : ($on ? '#111' : '#e3e3e3')) . '"></div>' . esc_html($l) . '</td>';
+		}
+		return $h . '</tr></table>';
+	}
+	static function events_email($d, $max = 4) {
+		if (empty($d['events'])) return '<p style="color:#777">The first courier scan usually appears within 24&ndash;72 hours of dispatch.</p>';
+		$h = '<table cellpadding="6" cellspacing="0" style="width:100%;border-collapse:collapse;margin:8px 0">';
+		foreach (array_slice($d['events'], 0, $max) as $i => $e) {
+			$h .= '<tr><td style="vertical-align:top;width:14px"><div style="width:10px;height:10px;border-radius:50%;margin-top:4px;background:' . ($i === 0 ? '#ffcc00' : '#cfcfcf') . '"></div></td><td style="border-bottom:1px solid #f0f0f0"><span style="font-weight:' . ($i === 0 ? 'bold' : 'normal') . '">' . esc_html($e['d']) . '</span><br><span style="font-size:12px;color:#888">' . esc_html($e['ts']) . '</span></td></tr>';
+		}
+		return $h . '</table>';
+	}
+	static function admin_preview() {
+		if (!current_user_can('manage_woocommerce')) wp_die('No access');
+		check_admin_referer('genz_hub_preview');
+		$order = wc_get_order((int) ($_POST['order'] ?? 0));
+		$no = self::clean_no(wp_unslash($_POST['tn'] ?? ''));
+		if ($order && $no) self::email_shipped($order, $no, get_option('admin_email'));
+		wp_safe_redirect(admin_url('admin.php?page=genz-tracking&preview=' . ($order && $no ? 1 : 0)));
+		exit;
+	}
+	static function email_shipped($order, $no, $to = '') {
+		$name = $order->get_billing_first_name() ?: 'there';
+		$d = self::cainiao($no);
+		$stage = max(2, self::stage($order, $d));
+		$html = '<p>Hi ' . esc_html($name) . ',</p><p>Great news &ndash; your order <strong>#' . esc_html($order->get_order_number()) . '</strong> has been dispatched and is on its way to you!</p>' .
+			'<p style="background:#f7f7f7;padding:14px;border-radius:8px;margin:16px 0">Tracking number<br><strong style="font-size:18px;letter-spacing:.5px">' . esc_html($no) . '</strong></p>' .
+			self::progress_email($stage) .
+			'<h3 style="margin:18px 0 6px">Latest tracking</h3>' . self::events_email($d) .
+			self::btn(self::track_link($order, $no), 'Track my parcel') .
+			self::items_html($order) .
+			'<p>We will email you every time your parcel moves, so you always know where it is.</p><p>Any questions? Just reply to this email or tap &quot;Chat with us&quot; on our website &ndash; our UK team is happy to help.</p><p>Thank you for shopping with GenZ Gadgets Store!</p>';
+		self::mail($to ?: $order->get_billing_email(), ($to ? '[PREVIEW] ' : '') . 'Your order #' . $order->get_order_number() . ' has shipped', 'Your order is on its way', $html);
+	}
+	static function track_cron() {
+		$active = (array) get_option('genz_hub_active', []);
+		$n = 0;
+		foreach (array_keys($active) as $oid) {
+			if (++$n > 60) break;
+			$order = wc_get_order($oid);
+			if (!$order) { unset($active[$oid]); continue; }
+			$list = self::order_tracking($order);
+			if (!$list) { unset($active[$oid]); continue; }
+			$all_done = true;
+			foreach ($list as $t) {
+				$no = $t['no'];
+				if ($order->get_meta('_genz_trk_done_' . $no)) continue;
+				$d = self::cainiao($no, true);
+				if (empty($d['ok'])) { $all_done = false; continue; }
+				if (!empty($t['added']) && $t['added'] < time() - 90 * DAY_IN_SECONDS) { $order->update_meta_data('_genz_trk_done_' . $no, 1); continue; }
+				if (empty($d['events'][0])) { $all_done = false; continue; }
+				$latest = $d['events'][0];
+				$h = md5($latest['d'] . $latest['t']);
+				$stage = self::stage($order, $d);
+				if ($order->get_meta('_genz_trk_last_' . $no) !== $h) {
+					$order->update_meta_data('_genz_trk_last_' . $no, $h);
+					$last_mail = (int) $order->get_meta('_genz_trk_mailed_' . $no);
+					if ($stage >= 4 || $last_mail < time() - 6 * HOUR_IN_SECONDS) {
+						self::email_update($order, $no, $latest, $stage);
+						$order->update_meta_data('_genz_trk_mailed_' . $no, time());
+					}
+					$order->add_order_note('Tracking update (' . $no . '): ' . $latest['d']);
+				}
+				if ($stage >= 5) $order->update_meta_data('_genz_trk_done_' . $no, 1); else $all_done = false;
+			}
+			$order->save();
+			if ($all_done) unset($active[$oid]);
+		}
+		update_option('genz_hub_active', $active, false);
+	}
+	static function email_update($order, $no, $ev, $stage) {
+		$labels = ['Order placed', 'Processing', 'Shipped', 'In transit', 'Out for delivery', 'Delivered'];
+		$name = $order->get_billing_first_name() ?: 'there';
+		$subj = $stage >= 5 ? 'Delivered: your order #' . $order->get_order_number() : ($stage == 4 ? 'Out for delivery today: order #' . $order->get_order_number() : 'Delivery update for order #' . $order->get_order_number());
+		$html = '<p>Hi ' . esc_html($name) . ',</p><p>There is a new update on your parcel <strong>' . esc_html($no) . '</strong>:</p>' .
+			'<p style="background:#fff8d6;border-left:4px solid #ffcc00;padding:12px;border-radius:4px"><strong>' . esc_html($labels[$stage]) . '</strong><br>' . esc_html($ev['d']) . '<br><small>' . esc_html($ev['ts']) . '</small></p>' .
+			self::progress_email($stage) .
+			self::btn(self::track_link($order, $no), 'See full tracking') .
+			self::items_html($order) .
+			($stage >= 5 ? '<p>We hope you love it! If anything is not right, our 30-day returns have you covered &ndash; just reply to this email.</p>' : '<p>We will keep you posted as your parcel moves.</p>');
+		self::mail($order->get_billing_email(), $subj, $stage >= 5 ? 'Your parcel has been delivered' : 'Your parcel is moving', $html);
+	}
+
+	/* --------------------------------------------------------- broadcast */
+	static function send_batch() {
+		global $wpdb;
+		$job = get_option('genz_hub_job');
+		if (!is_array($job)) return;
+		$t = $wpdb->prefix . 'genz_subscribers';
+		$rows = $wpdb->get_results($wpdb->prepare("SELECT id,email,name,token FROM $t WHERE status='subscribed' AND id>%d ORDER BY id ASC LIMIT 40", (int) $job['last_id']));
+		foreach ($rows as $s) {
+			$unsub = add_query_arg('genz_unsub', $s->token, home_url('/'));
+			$html = $job['html'] . '<p style="font-size:12px;color:#888;margin-top:30px">You are receiving this because you subscribed at genzgadget.uk. <a href="' . esc_url($unsub) . '">Unsubscribe</a></p>';
+			self::mail($s->email, $job['subject'], $job['heading'], $html);
+			$job['last_id'] = (int) $s->id;
+			$job['sent']++;
+		}
+		if (count($rows) < 40) {
+			$job['done'] = time();
+			update_option('genz_hub_last_job', $job, false);
+			delete_option('genz_hub_job');
+			return;
+		}
+		update_option('genz_hub_job', $job, false);
+		wp_schedule_single_event(time() + 60, 'genz_hub_send_batch');
+	}
+
+	/* ------------------------------------------------------- email delivery */
+	static function smtp() {
+		$o = get_option('genz_hub_smtp');
+		return wp_parse_args(is_array($o) ? $o : [], ['on' => 0, 'host' => 'smtp-relay.brevo.com', 'port' => 2525, 'user' => '', 'pass' => '', 'from' => 'orders@genzgadget.uk', 'name' => 'GenZ Gadgets Store', 'reply' => get_option('admin_email')]);
+	}
+	static function smtp_ready() { $o = self::smtp(); return $o['on'] && $o['user'] && $o['pass'] && is_email($o['from']); }
+	static function phpmailer($m) {
+		if (!self::smtp_ready()) return;
+		$o = self::smtp();
+		$m->isSMTP();
+		$m->Host = $o['host'];
+		$m->Port = (int) $o['port'];
+		$m->SMTPAuth = true;
+		$m->Username = $o['user'];
+		$m->Password = $o['pass'];
+		$m->SMTPSecure = ((int) $o['port'] === 465) ? 'ssl' : 'tls';
+		$m->Timeout = 20;
+		$m->Sender = $o['from'];
+	}
+	static function mail_from($f) { return self::smtp_ready() ? self::smtp()['from'] : $f; }
+	static function mail_from_name($n) { return self::smtp_ready() ? self::smtp()['name'] : $n; }
+	static function mail_reply_to($args) {
+		if (!self::smtp_ready()) return $args;
+		$o = self::smtp();
+		if (!is_email($o['reply'])) return $args;
+		$h = $args['headers'] ?? '';
+		$flat = is_array($h) ? implode("\n", $h) : (string) $h;
+		if (stripos($flat, 'reply-to:') === false) {
+			if (is_array($h)) $h[] = 'Reply-To: ' . $o['reply'];
+			else $h = rtrim($h) . ($h ? "\r\n" : '') . 'Reply-To: ' . $o['reply'];
+			$args['headers'] = $h;
+		}
+		return $args;
+	}
+	static function log_mail($to, $subject, $status, $err) {
+		$log = get_option('genz_hub_mail_log');
+		if (!is_array($log)) $log = [];
+		array_unshift($log, ['t' => time(), 'to' => is_array($to) ? implode(', ', $to) : (string) $to, 's' => mb_substr((string) $subject, 0, 140), 'st' => $status, 'e' => mb_substr((string) $err, 0, 200)]);
+		update_option('genz_hub_mail_log', array_slice($log, 0, 60), false);
+	}
+	static function admin_smtp_save() {
+		if (!current_user_can('manage_options')) wp_die('No access');
+		check_admin_referer('genz_hub_smtp_save');
+		$o = self::smtp();
+		$o['on'] = empty($_POST['on']) ? 0 : 1;
+		$o['host'] = sanitize_text_field(wp_unslash($_POST['host'] ?? $o['host']));
+		$o['port'] = (int) ($_POST['port'] ?? 587);
+		$o['user'] = sanitize_text_field(wp_unslash($_POST['user'] ?? ''));
+		$pass = trim((string) wp_unslash($_POST['pass'] ?? ''));
+		if ($pass !== '') $o['pass'] = $pass;
+		$o['from'] = sanitize_email(wp_unslash($_POST['from'] ?? $o['from']));
+		$o['name'] = sanitize_text_field(wp_unslash($_POST['name'] ?? $o['name']));
+		$o['reply'] = sanitize_email(wp_unslash($_POST['reply'] ?? $o['reply']));
+		update_option('genz_hub_smtp', $o, false);
+		wp_safe_redirect(admin_url('admin.php?page=genz-email&saved=1'));
+		exit;
+	}
+	static function admin_smtp_test() {
+		if (!current_user_can('manage_options')) wp_die('No access');
+		check_admin_referer('genz_hub_smtp_test');
+		$to = sanitize_email(wp_unslash($_POST['to'] ?? '')) ?: get_option('admin_email');
+		$ok = self::mail($to, 'Test email from GenZ Gadgets Store', 'Email delivery is working', '<p>If you are reading this in your inbox (not spam), your store emails are set up correctly.</p>' . self::btn(home_url('/'), 'Visit the shop'));
+		wp_safe_redirect(admin_url('admin.php?page=genz-email&test=' . ($ok ? 'ok' : 'fail')));
+		exit;
+	}
+	static function page_email() {
+		$o = self::smtp();
+		echo '<div class="wrap genz-a-wrap"><h1>Email Delivery</h1>';
+		if (!empty($_GET['saved'])) echo '<div class="notice notice-success"><p>Settings saved. Now press <strong>Send test email</strong>.</p></div>';
+		if (!empty($_GET['test'])) echo $_GET['test'] === 'ok' ? '<div class="notice notice-success"><p>Test email sent. Check your inbox &ndash; it should arrive in the Inbox, not Spam.</p></div>' : '<div class="notice notice-error"><p>The test email failed. See the error in the log below.</p></div>';
+		$ready = self::smtp_ready();
+		echo '<div class="genz-a-cards"><div><strong style="color:' . ($ready ? '#0a7a2f' : '#b00020') . '">' . ($ready ? 'ON' : 'OFF') . '</strong>Brevo email delivery</div><div><strong>' . esc_html($o['from']) . '</strong>Emails are sent from</div></div>';
+		echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:16px 20px;max-width:720px">';
+		wp_nonce_field('genz_hub_smtp_save');
+		echo '<input type="hidden" name="action" value="genz_hub_smtp_save"><table class="form-table" role="presentation">';
+		echo '<tr><th>Use Brevo for all store emails</th><td><label><input type="checkbox" name="on" value="1"' . checked($o['on'], 1, false) . '> On</label></td></tr>';
+		echo '<tr><th>SMTP server</th><td><input type="text" name="host" value="' . esc_attr($o['host']) . '" class="regular-text"> Port <input type="number" name="port" value="' . (int) $o['port'] . '" style="width:80px"></td></tr>';
+		echo '<tr><th>SMTP login</th><td><input type="text" name="user" value="' . esc_attr($o['user']) . '" class="regular-text" autocomplete="off"><p class="description">Brevo &rarr; Settings &rarr; SMTP &amp; API &rarr; SMTP tab (looks like xxxx@smtp-brevo.com).</p></td></tr>';
+		echo '<tr><th>SMTP key</th><td><input type="password" name="pass" value="" class="regular-text" autocomplete="new-password" placeholder="' . ($o['pass'] ? 'Saved &ndash; leave empty to keep' : 'Paste your Brevo SMTP key') . '"></td></tr>';
+		echo '<tr><th>From email</th><td><input type="email" name="from" value="' . esc_attr($o['from']) . '" class="regular-text"></td></tr>';
+		echo '<tr><th>From name</th><td><input type="text" name="name" value="' . esc_attr($o['name']) . '" class="regular-text"></td></tr>';
+		echo '<tr><th>Customer replies go to</th><td><input type="email" name="reply" value="' . esc_attr($o['reply']) . '" class="regular-text"></td></tr>';
+		echo '</table>';
+		submit_button('Save settings');
+		echo '</form>';
+		echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin:16px 0">';
+		wp_nonce_field('genz_hub_smtp_test');
+		echo '<input type="hidden" name="action" value="genz_hub_smtp_test">Send a test to <input type="email" name="to" value="' . esc_attr(get_option('admin_email')) . '"> ';
+		submit_button('Send test email', 'secondary', 'submit', false);
+		echo '</form>';
+		self::mail_log_table(30);
+		echo '</div>';
+	}
+	static function mail_log_table($n) {
+		$log = get_option('genz_hub_mail_log');
+		if (!is_array($log)) $log = [];
+		echo '<h2>Recent emails</h2><table class="genz-a-list"><thead><tr><th>When</th><th>To</th><th>Subject</th><th>Status</th></tr></thead><tbody>';
+		if (!$log) echo '<tr><td colspan="4">No emails logged yet.</td></tr>';
+		foreach (array_slice((array) $log, 0, $n) as $l) {
+			echo '<tr><td>' . esc_html(human_time_diff($l['t']) . ' ago') . '</td><td>' . esc_html($l['to']) . '</td><td>' . esc_html($l['s']) . '</td><td>' . ($l['st'] === 'sent' ? '<span style="color:#0a7a2f">Sent</span>' : '<span style="color:#b00020">Failed</span> ' . esc_html($l['e'])) . '</td></tr>';
+		}
+		echo '</tbody></table>';
+	}
+
+	/* ------------------------------------------------------ overview hub */
+	static function admin_quick_track() {
+		if (!current_user_can('edit_shop_orders')) wp_die('No access');
+		check_admin_referer('genz_hub_quick_track');
+		$order = wc_get_order((int) preg_replace('/[^0-9]/', '', (string) ($_POST['order'] ?? '')));
+		$no = self::clean_no(wp_unslash($_POST['tn'] ?? ''));
+		$msg = 'bad';
+		if ($order && strlen($no) >= 6) {
+			$list = self::order_tracking($order);
+			if (!in_array($no, array_column($list, 'no'), true)) {
+				$list[] = ['no' => $no, 'carrier' => 'cainiao', 'added' => time()];
+				$order->update_meta_data('_genz_tracking', $list);
+				$order->add_order_note('Tracking number ' . $no . ' added from GenZ Hub.');
+				$d = self::cainiao($no, true);
+				if (!empty($d['events'][0])) $order->update_meta_data('_genz_trk_last_' . $no, md5($d['events'][0]['d'] . $d['events'][0]['t']));
+				$order->save();
+				$active = (array) get_option('genz_hub_active', []);
+				$active[$order->get_id()] = 1;
+				update_option('genz_hub_active', $active, false);
+				if (!empty($_POST['notify'])) self::email_shipped($order, $no);
+				if (!empty($_POST['complete']) && $order->get_status() !== 'completed') $order->update_status('completed', 'Marked as shipped with tracking.');
+				$msg = 'ok';
+			} else $msg = 'dup';
+		}
+		wp_safe_redirect(admin_url('admin.php?page=genz-hub&qt=' . $msg));
+		exit;
+	}
+	static function admin_check_now() {
+		if (!current_user_can('manage_woocommerce')) wp_die('No access');
+		check_admin_referer('genz_hub_check_now');
+		self::track_cron();
+		wp_safe_redirect(admin_url('admin.php?page=genz-hub&checked=1'));
+		exit;
+	}
+	static function page_hub() {
+		global $wpdb;
+		$active = (array) get_option('genz_hub_active', []);
+		$subs = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}genz_subscribers WHERE status='subscribed'");
+		$unread = self::unread_count();
+		$ready = self::smtp_ready();
+		$next = wp_next_scheduled('genz_hub_track_cron');
+		echo '<div class="wrap genz-a-wrap"><h1>GenZ Hub</h1><p>Everything for your customers in one place: tracking, messages, subscribers and emails.</p>';
+		$qt = sanitize_key($_GET['qt'] ?? '');
+		if ($qt === 'ok') echo '<div class="notice notice-success"><p>Tracking added. The customer has been emailed and will get automatic updates.</p></div>';
+		if ($qt === 'dup') echo '<div class="notice notice-warning"><p>That tracking number is already on this order.</p></div>';
+		if ($qt === 'bad') echo '<div class="notice notice-error"><p>Order not found or tracking number too short.</p></div>';
+		if (!empty($_GET['checked'])) echo '<div class="notice notice-success"><p>All parcels checked. Customers were emailed where there was a new update.</p></div>';
+		echo '<div class="genz-a-cards">';
+		echo '<div><a href="' . esc_url(admin_url('admin.php?page=genz-inbox')) . '" style="text-decoration:none;color:inherit"><strong>' . $unread . '</strong>Messages to reply</a></div>';
+		echo '<div><a href="' . esc_url(admin_url('admin.php?page=genz-tracking')) . '" style="text-decoration:none;color:inherit"><strong>' . count($active) . '</strong>Parcels being tracked</a></div>';
+		echo '<div><a href="' . esc_url(admin_url('admin.php?page=genz-subscribers')) . '" style="text-decoration:none;color:inherit"><strong>' . $subs . '</strong>Subscribers</a></div>';
+		echo '<div><a href="' . esc_url(admin_url('admin.php?page=genz-email')) . '" style="text-decoration:none;color:inherit"><strong style="color:' . ($ready ? '#0a7a2f' : '#b00020') . '">' . ($ready ? 'Inbox-ready' : 'Set up') . '</strong>Email delivery</a></div>';
+		echo '</div>';
+		// Quick add tracking.
+		$orders = wc_get_orders(['limit' => 30, 'orderby' => 'date', 'order' => 'DESC', 'type' => 'shop_order', 'status' => ['processing', 'on-hold', 'completed']]);
+		echo '<div style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:16px 20px;margin:16px 0"><h2 style="margin-top:0">Add tracking &amp; notify customer (one click)</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+		wp_nonce_field('genz_hub_quick_track');
+		echo '<input type="hidden" name="action" value="genz_hub_quick_track"><select name="order" required style="min-width:320px"><option value="">Choose order...</option>';
+		foreach ($orders as $o) {
+			$items = [];
+			foreach ($o->get_items() as $it) $items[] = $it->get_name() . ' x' . $it->get_quantity();
+			$has = self::order_tracking($o) ? ' [tracked]' : '';
+			echo '<option value="' . (int) $o->get_id() . '">#' . esc_html($o->get_order_number() . ' ' . $o->get_formatted_billing_full_name() . ' - ' . mb_substr(implode(', ', $items), 0, 60) . $has) . '</option>';
+		}
+		echo '</select> <input type="text" name="tn" placeholder="Tracking number" required style="min-width:240px"> ';
+		echo '<label><input type="checkbox" name="notify" value="1" checked> Email customer</label> <label><input type="checkbox" name="complete" value="1"> Mark completed</label> ';
+		submit_button('Add & send', 'primary', 'submit', false);
+		echo '</form></div>';
+		// Parcels.
+		echo '<div style="display:flex;justify-content:space-between;align-items:center"><h2>Parcels</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+		wp_nonce_field('genz_hub_check_now');
+		echo '<input type="hidden" name="action" value="genz_hub_check_now">';
+		submit_button('Check all parcels now', 'secondary', 'submit', false);
+		echo '</form></div><p class="description">Automatic check every 3 hours &middot; next: ' . ($next ? esc_html(wp_date('j M, H:i', $next)) : '-') . '</p>';
+		echo '<table class="genz-a-list"><thead><tr><th>Order</th><th>Customer</th><th>Tracking</th><th>Status</th><th>Latest update</th></tr></thead><tbody>';
+		if (!$active) echo '<tr><td colspan="5">No parcels being tracked. Add one above.</td></tr>';
+		$labels = ['Order placed', 'Processing', 'Shipped', 'In transit', 'Out for delivery', 'Delivered'];
+		foreach (array_keys($active) as $oid) {
+			$o = wc_get_order($oid);
+			if (!$o) continue;
+			foreach (self::order_tracking($o) as $t) {
+				$d = self::cainiao($t['no']);
+				$stage = self::stage($o, $d);
+				$ev = !empty($d['events'][0]) ? esc_html($d['events'][0]['d']) . '<br><small>' . esc_html($d['events'][0]['ts']) . '</small>' : 'Waiting for first scan';
+				echo '<tr><td><a href="' . esc_url($o->get_edit_order_url()) . '">#' . esc_html($o->get_order_number()) . '</a></td><td>' . esc_html($o->get_formatted_billing_full_name()) . '</td><td><a href="' . esc_url(self::track_link($o, $t['no'])) . '" target="_blank">' . esc_html($t['no']) . '</a></td><td><strong>' . esc_html($labels[$stage]) . '</strong></td><td>' . $ev . '</td></tr>'; // phpcs:ignore
+			}
+		}
+		echo '</tbody></table>';
+		self::mail_log_table(10);
+		echo '<h2>Shortcuts</h2><p><a class="button" href="' . esc_url(admin_url('admin.php?page=genz-inbox')) . '">Inbox</a> <a class="button" href="' . esc_url(admin_url('admin.php?page=genz-subscribers')) . '">Subscribers &amp; send update</a> <a class="button" href="' . esc_url(admin_url('admin.php?page=genz-email')) . '">Email delivery</a> <a class="button" href="' . esc_url(self::track_url()) . '" target="_blank">Customer tracking page</a></p>';
+		echo '</div>';
+	}
+
+	/* ------------------------------------------------------------ admin */
+	static function unread_count() {
+		global $wpdb;
+		return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}genz_threads WHERE unread_admin>0");
+	}
+	static function admin_menu() {
+		$n = self::unread_count();
+		$bubble = $n ? ' <span class="awaiting-mod count-' . $n . '"><span class="pending-count">' . $n . '</span></span>' : '';
+		add_menu_page('GenZ Hub', 'GenZ Hub' . $bubble, 'manage_woocommerce', 'genz-hub', [__CLASS__, 'page_hub'], 'dashicons-store', 3);
+		add_submenu_page('genz-hub', 'GenZ Hub', 'Overview', 'manage_woocommerce', 'genz-hub', [__CLASS__, 'page_hub']);
+		add_submenu_page('genz-hub', 'Customer Inbox', 'Inbox' . $bubble, 'manage_woocommerce', 'genz-inbox', [__CLASS__, 'page_inbox']);
+		add_submenu_page('genz-hub', 'Order Tracking', 'Order Tracking', 'manage_woocommerce', 'genz-tracking', [__CLASS__, 'page_tracking']);
+		add_submenu_page('genz-hub', 'Subscribers', 'Subscribers', 'manage_woocommerce', 'genz-subscribers', [__CLASS__, 'page_subscribers']);
+		add_submenu_page('genz-hub', 'Email Delivery', 'Email Delivery', 'manage_options', 'genz-email', [__CLASS__, 'page_email']);
+	}
+	static function admin_css() {
+		$s = get_current_screen();
+		if (!$s || strpos($s->id, 'genz-') === false) return;
+		echo '<style>.genz-a-wrap{max-width:1100px}.genz-a-list{width:100%;border-collapse:collapse;background:#fff}.genz-a-list td,.genz-a-list th{padding:10px;border-bottom:1px solid #eee;text-align:left;vertical-align:top}.genz-a-list tr.unread td{background:#fffbe6;font-weight:600}.genz-a-thread{background:#f6f7f7;border:1px solid #ddd;border-radius:8px;padding:16px;max-height:520px;overflow:auto}.genz-a-b{max-width:75%;padding:10px 12px;border-radius:10px;margin:0 0 10px;white-space:pre-wrap}.genz-a-b.customer{background:#fff;border:1px solid #e2e2e2}.genz-a-b.admin{background:#1d2327;color:#fff;margin-left:auto}.genz-a-b small{display:block;opacity:.65;font-size:11px;margin-top:4px}.genz-a-cards{display:flex;gap:12px;margin:16px 0}.genz-a-cards div{background:#fff;border:1px solid #ddd;border-radius:8px;padding:14px 18px;min-width:150px}.genz-a-cards strong{display:block;font-size:22px}.genz-a-cards{flex-wrap:wrap}@media (max-width:782px){.genz-a-cards div{flex:1 1 40%;min-width:0}.genz-a-list{display:block;overflow-x:auto;white-space:normal}.genz-a-wrap select,.genz-a-wrap input[type=text],.genz-a-wrap input[type=email],.genz-a-wrap input[type=number]{width:100%!important;max-width:none!important;margin:4px 0}.genz-a-b{max-width:92%}.genz-a-wrap form .button{margin-top:6px}}</style>';
+	}
+	static function page_inbox() {
+		global $wpdb;
+		$tt = $wpdb->prefix . 'genz_threads';
+		$tid = isset($_GET['thread']) ? (int) $_GET['thread'] : 0;
+		echo '<div class="wrap genz-a-wrap">';
+		if ($tid) {
+			$t = $wpdb->get_row($wpdb->prepare("SELECT * FROM $tt WHERE id=%d", $tid));
+			if (!$t) { echo '<p>Conversation not found.</p></div>'; return; }
+			$wpdb->update($tt, ['unread_admin' => 0], ['id' => $t->id]);
+			$msgs = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$wpdb->prefix}genz_messages WHERE thread_id=%d ORDER BY id ASC", $t->id));
+			echo '<p><a href="' . esc_url(admin_url('admin.php?page=genz-inbox')) . '">&larr; All conversations</a></p>';
+			echo '<h1>' . esc_html($t->name) . ' <small style="font-size:14px;font-weight:normal">&lt;' . esc_html($t->email) . '&gt;</small></h1>';
+			$meta = [];
+			if ($t->order_ref) {
+				$o = wc_get_order((int) $t->order_ref);
+				$meta[] = $o ? 'Order <a href="' . esc_url($o->get_edit_order_url()) . '">#' . esc_html($o->get_order_number()) . '</a> (' . esc_html(wc_get_order_status_name($o->get_status())) . ')' : 'Order ref: ' . esc_html($t->order_ref);
+			}
+			$orders = wc_get_orders(['billing_email' => $t->email, 'limit' => 5, 'return' => 'objects', 'type' => 'shop_order']);
+			if ($orders) {
+				$l = [];
+				foreach ($orders as $o) $l[] = '<a href="' . esc_url($o->get_edit_order_url()) . '">#' . esc_html($o->get_order_number()) . '</a> ' . esc_html(wc_get_order_status_name($o->get_status()));
+				$meta[] = 'Orders with this email: ' . implode(', ', $l);
+			}
+			$meta[] = 'Status: <strong>' . esc_html(ucfirst($t->status)) . '</strong>';
+			echo '<p>' . implode(' &middot; ', $meta) . '</p>'; // phpcs:ignore
+			echo '<div class="genz-a-thread" id="genz-a-thread">';
+			foreach ($msgs as $m) echo '<div class="genz-a-b ' . esc_attr($m->sender) . '">' . esc_html($m->body) . '<small>' . ($m->sender === 'admin' ? 'You' : esc_html($t->name)) . ' &middot; ' . esc_html(wp_date('j M Y, H:i', strtotime($m->created . ' UTC'))) . '</small></div>';
+			echo '</div><script>var g=document.getElementById("genz-a-thread");g.scrollTop=g.scrollHeight;</script>';
+			echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-top:14px">';
+			wp_nonce_field('genz_hub_reply');
+			echo '<input type="hidden" name="action" value="genz_hub_reply"><input type="hidden" name="thread" value="' . (int) $t->id . '">';
+			$vars = self::quick_vars($t);
+			echo '<div class="genz-a-quick"><strong>Quick replies:</strong> ';
+			foreach (self::quick_replies() as $q) echo '<button type="button" class="button button-small" data-q="' . esc_attr(strtr($q['b'], $vars)) . '">' . esc_html($q['t']) . '</button> ';
+			echo '<a href="' . esc_url(admin_url('admin.php?page=genz-inbox#genz-quick')) . '" style="margin-left:6px">Edit</a></div>';
+			echo '<textarea id="genz-a-reply" name="reply" rows="7" style="width:100%;margin-top:8px" placeholder="Write your reply... (the customer gets it by email and in the chat)" required></textarea>';
+			echo '<script>document.querySelectorAll(".genz-a-quick [data-q]").forEach(function(b){b.addEventListener("click",function(){var t=document.getElementById("genz-a-reply");t.value=t.value?t.value+"\n\n"+b.getAttribute("data-q"):b.getAttribute("data-q");t.focus();});});</script>';
+			echo '<p><label><input type="checkbox" name="close" value="1"> Mark as resolved after sending</label></p>';
+			submit_button('Send reply', 'primary', 'submit', false);
+			echo '</form>';
+			echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-top:10px">';
+			wp_nonce_field('genz_hub_thread_status');
+			echo '<input type="hidden" name="action" value="genz_hub_thread_status"><input type="hidden" name="thread" value="' . (int) $t->id . '"><input type="hidden" name="status" value="' . ($t->status === 'open' ? 'closed' : 'open') . '">';
+			submit_button($t->status === 'open' ? 'Mark as resolved' : 'Reopen', 'secondary', 'submit', false);
+			echo '</form></div>';
+			return;
+		}
+		$f = isset($_GET['f']) ? sanitize_key($_GET['f']) : 'open';
+		$where = $f === 'closed' ? "status='closed'" : ($f === 'all' ? '1=1' : "status='open'");
+		$rows = $wpdb->get_results("SELECT * FROM $tt WHERE $where ORDER BY last_at DESC LIMIT 200");
+		$open = (int) $wpdb->get_var("SELECT COUNT(*) FROM $tt WHERE status='open'");
+		echo '<h1>Customer Inbox</h1><div class="genz-a-cards"><div><strong>' . self::unread_count() . '</strong>Need a reply</div><div><strong>' . $open . '</strong>Open</div></div>';
+		echo '<ul class="subsubsub">';
+		foreach (['open' => 'Open', 'closed' => 'Resolved', 'all' => 'All'] as $k => $l) echo '<li><a href="' . esc_url(admin_url('admin.php?page=genz-inbox&f=' . $k)) . '"' . ($f === $k ? ' class="current"' : '') . '>' . $l . '</a> | </li>';
+		echo '</ul><br class="clear">';
+		echo '<table class="genz-a-list"><thead><tr><th>Customer</th><th>Last message</th><th>Order</th><th>When</th></tr></thead><tbody>';
+		if (!$rows) echo '<tr><td colspan="4">No conversations yet. Messages from the website chat will appear here.</td></tr>';
+		foreach ($rows as $r) {
+			$url = admin_url('admin.php?page=genz-inbox&thread=' . (int) $r->id);
+			echo '<tr class="' . ($r->unread_admin ? 'unread' : '') . '"><td><a href="' . esc_url($url) . '"><strong>' . esc_html($r->name) . '</strong></a><br><small>' . esc_html($r->email) . '</small></td><td><a href="' . esc_url($url) . '" style="color:inherit;text-decoration:none">' . esc_html($r->last_preview) . '</a>' . ($r->unread_admin ? ' <span class="awaiting-mod">' . (int) $r->unread_admin . ' new</span>' : '') . '</td><td>' . ($r->order_ref ? '#' . esc_html($r->order_ref) : '&ndash;') . '</td><td>' . esc_html(human_time_diff(strtotime($r->last_at . ' UTC')) . ' ago') . '</td></tr>';
+		}
+		echo '</tbody></table>';
+		if (!empty($_GET['quick'])) echo '<div class="notice notice-success"><p>Quick replies saved.</p></div>';
+		echo '<h2 id="genz-quick" style="margin-top:36px">Quick replies</h2><p>Use <code>{name}</code>, <code>{order}</code>, <code>{tracking}</code>, <code>{track_link}</code> and <code>{shop}</code> &ndash; they are filled in automatically from the customer&#39;s latest order. Leave a title empty to delete a reply.</p>';
+		echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+		wp_nonce_field('genz_hub_quick_save');
+		echo '<input type="hidden" name="action" value="genz_hub_quick_save"><table class="genz-a-list">';
+		$qs = self::quick_replies();
+		for ($i = 0; $i < count($qs) + 3; $i++) {
+			$q = $qs[$i] ?? ['t' => '', 'b' => ''];
+			echo '<tr><td style="width:200px"><input type="text" name="qt[]" value="' . esc_attr($q['t']) . '" placeholder="Title" style="width:100%"></td><td><textarea name="qb[]" rows="3" style="width:100%">' . esc_textarea($q['b']) . '</textarea></td></tr>';
+		}
+		echo '</table>';
+		submit_button('Save quick replies');
+		echo '</form></div>';
+	}
+	static function quick_defaults() {
+		return [
+			['t' => 'Greeting', 'b' => "Hi {name},\n\nThanks for getting in touch with GenZ Gadgets Store! I'm looking into this for you now and will update you shortly."],
+			['t' => 'Tracking details', 'b' => "Hi {name},\n\nGood news - your order #{order} is on its way.\nTracking number: {tracking}\nLive tracking: {track_link}\n\nYou'll also get an email every time your parcel moves. Delivery usually takes 3-7 working days."],
+			['t' => 'Not shipped yet', 'b' => "Hi {name},\n\nYour order #{order} is being prepared for dispatch. As soon as it ships we'll email you the tracking number, and you can follow it here: {track_link}"],
+			['t' => 'Delay apology', 'b' => "Hi {name},\n\nI'm sorry your order #{order} is taking longer than expected. It is moving through the courier network and the latest update is on {track_link}. We're keeping a close eye on it and will update you as soon as it moves."],
+			['t' => 'Returns', 'b' => "Hi {name},\n\nNo problem at all - you have 30 days to return your item. Please reply with your order number and the reason for the return, and we'll send you the return instructions straight away."],
+			['t' => 'Refund done', 'b' => "Hi {name},\n\nYour refund for order #{order} has been processed. It usually shows on your account within 3-5 working days depending on your bank."],
+			['t' => 'Thanks / close', 'b' => "Thanks {name}! If there's anything else you need, just message us here any time. Have a lovely day - GenZ Gadgets Store"],
+		];
+	}
+	static function quick_replies() {
+		$q = get_option('genz_hub_quick');
+		return is_array($q) && $q ? $q : self::quick_defaults();
+	}
+	static function admin_quick_save() {
+		if (!current_user_can('manage_woocommerce')) wp_die('No access');
+		check_admin_referer('genz_hub_quick_save');
+		$out = [];
+		$titles = (array) ($_POST['qt'] ?? []);
+		$bodies = (array) ($_POST['qb'] ?? []);
+		foreach ($titles as $i => $t) {
+			$t = sanitize_text_field(wp_unslash($t));
+			$b = sanitize_textarea_field(wp_unslash($bodies[$i] ?? ''));
+			if ($t !== '' && $b !== '') $out[] = ['t' => $t, 'b' => $b];
+		}
+		update_option('genz_hub_quick', $out ?: self::quick_defaults(), false);
+		wp_safe_redirect(admin_url('admin.php?page=genz-inbox&quick=1#genz-quick'));
+		exit;
+	}
+	static function quick_vars($t) {
+		$order = null;
+		if ($t->order_ref) { $o = wc_get_order((int) $t->order_ref); if ($o && strtolower($o->get_billing_email()) === strtolower($t->email)) $order = $o; }
+		if (!$order) { $os = wc_get_orders(['billing_email' => $t->email, 'limit' => 1, 'orderby' => 'date', 'order' => 'DESC', 'type' => 'shop_order']); if ($os) $order = $os[0]; }
+		$nos = $order ? array_column(self::order_tracking($order), 'no') : [];
+		$first = trim(strtok($t->name, ' ')) ?: $t->name;
+		return [
+			'{name}' => $first,
+			'{order}' => $order ? $order->get_order_number() : ($t->order_ref ?: '(order number)'),
+			'{tracking}' => $nos ? implode(', ', $nos) : '(not shipped yet)',
+			'{track_link}' => $nos ? self::track_link($order, $nos[0]) : self::track_url(),
+			'{shop}' => home_url('/shop/'),
+		];
+	}
+	static function admin_reply() {
+		if (!current_user_can('manage_woocommerce')) wp_die('No access');
+		check_admin_referer('genz_hub_reply');
+		global $wpdb;
+		$tid = (int) ($_POST['thread'] ?? 0);
+		$body = trim(sanitize_textarea_field(wp_unslash($_POST['reply'] ?? '')));
+		$t = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}genz_threads WHERE id=%d", $tid));
+		if ($t && $body !== '') {
+			$wpdb->insert($wpdb->prefix . 'genz_messages', ['thread_id' => $t->id, 'sender' => 'admin', 'body' => $body, 'created' => self::now()]);
+			$status = !empty($_POST['close']) ? 'closed' : 'open';
+			$wpdb->query($wpdb->prepare("UPDATE {$wpdb->prefix}genz_threads SET unread_customer=unread_customer+1, unread_admin=0, status=%s, last_at=%s, last_preview=%s WHERE id=%d", $status, self::now(), mb_substr('You: ' . $body, 0, 190), $t->id));
+			$link = $t->user_id ? wc_get_account_endpoint_url('messages') : add_query_arg('genz_chat', $t->token, home_url('/'));
+			self::mail($t->email, 'Reply from GenZ Gadgets Store', 'We have replied to your message', '<p>Hi ' . esc_html($t->name) . ',</p><blockquote style="border-left:3px solid #ffcc00;margin:0;padding:10px 14px;background:#f7f7f7">' . nl2br(esc_html($body)) . '</blockquote>' . self::btn($link, 'Reply in chat') . '<p style="font-size:12px;color:#777">You can also simply reply to this email.</p>');
+		}
+		wp_safe_redirect(admin_url('admin.php?page=genz-inbox&thread=' . $tid . '&sent=1'));
+		exit;
+	}
+	static function admin_thread_status() {
+		if (!current_user_can('manage_woocommerce')) wp_die('No access');
+		check_admin_referer('genz_hub_thread_status');
+		global $wpdb;
+		$s = ($_POST['status'] ?? '') === 'closed' ? 'closed' : 'open';
+		$wpdb->update($wpdb->prefix . 'genz_threads', ['status' => $s, 'unread_admin' => 0], ['id' => (int) ($_POST['thread'] ?? 0)]);
+		wp_safe_redirect(admin_url('admin.php?page=genz-inbox' . ($s === 'closed' ? '' : '&thread=' . (int) $_POST['thread'])));
+		exit;
+	}
+	static function page_subscribers() {
+		global $wpdb;
+		$t = $wpdb->prefix . 'genz_subscribers';
+		$total = (int) $wpdb->get_var("SELECT COUNT(*) FROM $t WHERE status='subscribed'");
+		$unsub = (int) $wpdb->get_var("SELECT COUNT(*) FROM $t WHERE status<>'subscribed'");
+		$rows = $wpdb->get_results("SELECT * FROM $t ORDER BY id DESC LIMIT 300");
+		$job = get_option('genz_hub_job');
+		$last = get_option('genz_hub_last_job');
+		echo '<div class="wrap genz-a-wrap"><h1>Subscribers</h1>';
+		if (!empty($_GET['queued'])) echo '<div class="notice notice-success"><p>Your email is being sent in the background (40 emails per minute).</p></div>';
+		echo '<div class="genz-a-cards"><div><strong>' . $total . '</strong>Subscribed</div><div><strong>' . $unsub . '</strong>Unsubscribed</div>';
+		if (is_array($job)) echo '<div><strong>' . (int) $job['sent'] . '</strong>Sending now: ' . esc_html($job['subject']) . '</div>';
+		elseif (is_array($last)) echo '<div><strong>' . (int) $last['sent'] . '</strong>Last email: ' . esc_html($last['subject']) . '</div>';
+		echo '</div>';
+		echo '<p><a class="button" href="' . esc_url(wp_nonce_url(admin_url('admin-post.php?action=genz_hub_export'), 'genz_hub_export')) . '">Export CSV</a></p>';
+		echo '<h2>Send an update to all subscribers</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+		wp_nonce_field('genz_hub_broadcast');
+		echo '<input type="hidden" name="action" value="genz_hub_broadcast">';
+		echo '<p><label>Subject<br><input type="text" name="subject" class="large-text" required placeholder="e.g. New in: heated gilets + free UK delivery"></label></p>';
+		echo '<p><label>Heading<br><input type="text" name="heading" class="large-text" placeholder="e.g. Fresh gadgets just landed"></label></p>';
+		wp_editor('', 'genz_body', ['textarea_name' => 'body', 'textarea_rows' => 10, 'media_buttons' => true]);
+		echo '<p><label><input type="checkbox" name="test" value="1" checked> Send a test to ' . esc_html(get_option('admin_email')) . ' only (untick to send to all ' . $total . ' subscribers)</label></p>';
+		submit_button('Send email');
+		echo '</form>';
+		echo '<h2>Latest subscribers</h2><table class="genz-a-list"><thead><tr><th>Email</th><th>Name</th><th>Source</th><th>Status</th><th>Joined</th><th></th></tr></thead><tbody>';
+		if (!$rows) echo '<tr><td colspan="6">No subscribers yet. The sign-up form is shown above your site footer and as an option at checkout.</td></tr>';
+		foreach ($rows as $r) {
+			$del = wp_nonce_url(admin_url('admin-post.php?action=genz_hub_sub_delete&id=' . (int) $r->id), 'genz_hub_sub_delete');
+			echo '<tr><td>' . esc_html($r->email) . '</td><td>' . esc_html($r->name) . '</td><td>' . esc_html($r->source) . '</td><td>' . esc_html($r->status) . '</td><td>' . esc_html(wp_date('j M Y', strtotime($r->created . ' UTC'))) . '</td><td><a href="' . esc_url($del) . '" onclick="return confirm(\'Delete this subscriber?\')">Delete</a></td></tr>';
+		}
+		echo '</tbody></table></div>';
+	}
+	static function admin_export() {
+		if (!current_user_can('manage_woocommerce')) wp_die('No access');
+		check_admin_referer('genz_hub_export');
+		global $wpdb;
+		$rows = $wpdb->get_results("SELECT email,name,status,source,created FROM {$wpdb->prefix}genz_subscribers ORDER BY id ASC", ARRAY_A);
+		header('Content-Type: text/csv; charset=utf-8');
+		header('Content-Disposition: attachment; filename=genz-subscribers-' . gmdate('Y-m-d') . '.csv');
+		$o = fopen('php://output', 'w');
+		fputcsv($o, ['email', 'name', 'status', 'source', 'created']);
+		foreach ($rows as $r) fputcsv($o, $r);
+		fclose($o);
+		exit;
+	}
+	static function admin_sub_delete() {
+		if (!current_user_can('manage_woocommerce')) wp_die('No access');
+		check_admin_referer('genz_hub_sub_delete');
+		global $wpdb;
+		$wpdb->delete($wpdb->prefix . 'genz_subscribers', ['id' => (int) ($_GET['id'] ?? 0)]);
+		wp_safe_redirect(admin_url('admin.php?page=genz-subscribers'));
+		exit;
+	}
+	static function admin_broadcast() {
+		if (!current_user_can('manage_woocommerce')) wp_die('No access');
+		check_admin_referer('genz_hub_broadcast');
+		$subject = sanitize_text_field(wp_unslash($_POST['subject'] ?? ''));
+		$heading = sanitize_text_field(wp_unslash($_POST['heading'] ?? '')) ?: $subject;
+		$html = wpautop(wp_kses_post(wp_unslash($_POST['body'] ?? '')));
+		if ($subject === '' || trim(wp_strip_all_tags($html)) === '') wp_die('Please add a subject and a message. <a href="javascript:history.back()">Back</a>');
+		if (!empty($_POST['test'])) {
+			self::mail(get_option('admin_email'), '[TEST] ' . $subject, $heading, $html . '<p style="font-size:12px;color:#888">Unsubscribe link appears here for subscribers.</p>');
+			wp_safe_redirect(admin_url('admin.php?page=genz-subscribers&tested=1'));
+			exit;
+		}
+		if (get_option('genz_hub_job')) wp_die('An email is already being sent. Please wait for it to finish. <a href="javascript:history.back()">Back</a>');
+		update_option('genz_hub_job', ['subject' => $subject, 'heading' => $heading, 'html' => $html, 'last_id' => 0, 'sent' => 0, 'started' => time()], false);
+		wp_schedule_single_event(time(), 'genz_hub_send_batch');
+		wp_safe_redirect(admin_url('admin.php?page=genz-subscribers&queued=1'));
+		exit;
+	}
+	static function page_tracking() {
+		$active = (array) get_option('genz_hub_active', []);
+		echo '<div class="wrap genz-a-wrap"><h1>Order Tracking</h1>';
+		echo '<p>Add a Cainiao tracking number from the <strong>Tracking &amp; customer updates</strong> box on any order. The customer is emailed straight away, the parcel is checked every 3 hours, and the customer gets an email each time it moves (at most every 6 hours, plus out-for-delivery and delivered).</p>';
+		echo '<p>Customer tracking page: <a href="' . esc_url(self::track_url()) . '" target="_blank">' . esc_html(self::track_url()) . '</a></p>';
+		$next = wp_next_scheduled('genz_hub_track_cron');
+		echo '<p>Next automatic check: ' . ($next ? esc_html(wp_date('j M Y, H:i', $next)) : 'not scheduled') . '</p>';
+		if (isset($_GET['preview'])) echo '<div class="notice notice-' . ($_GET['preview'] ? 'success' : 'error') . '"><p>' . ($_GET['preview'] ? 'Preview sent to ' . esc_html(get_option('admin_email')) . '.' : 'Order not found.') . '</p></div>';
+		echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:12px 16px;margin:16px 0">';
+		wp_nonce_field('genz_hub_preview');
+		echo '<input type="hidden" name="action" value="genz_hub_preview"><strong>Preview the &quot;order shipped&quot; email</strong> (sent to you only): Order ID <input type="number" name="order" style="width:90px" required> Tracking no. <input type="text" name="tn" required> ';
+		submit_button('Send preview to me', 'secondary', 'submit', false);
+		echo '</form>';
+		echo '<table class="genz-a-list"><thead><tr><th>Order</th><th>Tracking</th><th>Latest update</th></tr></thead><tbody>';
+		if (!$active) echo '<tr><td colspan="3">No parcels being tracked right now.</td></tr>';
+		foreach (array_keys($active) as $oid) {
+			$o = wc_get_order($oid);
+			if (!$o) continue;
+			foreach (self::order_tracking($o) as $t) {
+				$d = get_transient('genz_cn_' . md5($t['no']));
+				$st = is_array($d) && !empty($d['events'][0]) ? $d['events'][0]['ts'] . ' &ndash; ' . esc_html($d['events'][0]['d']) : 'Waiting for first scan';
+				echo '<tr><td><a href="' . esc_url($o->get_edit_order_url()) . '">#' . esc_html($o->get_order_number()) . '</a> ' . esc_html($o->get_formatted_billing_full_name()) . '</td><td>' . esc_html($t['no']) . '</td><td>' . $st . '</td></tr>'; // phpcs:ignore
+			}
+		}
+		echo '</tbody></table></div>';
+	}
+}
+GenZ_Hub::init();
