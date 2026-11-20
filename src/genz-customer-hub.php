@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.5.7
+ * Version: 1.5.8
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.5.7';
+	const V = '1.5.8';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -1007,7 +1007,7 @@ html body ul.wc-block-product-template .genz-card-btns a.genz-cart-ic.genz-cart-
 html body ul.wc-block-product-template .genz-card-btns a.genz-buy-now.genz-buy-now.genz-buy-now{flex:1!important;height:44px!important;padding:0 10px!important;border-radius:12px!important;background:linear-gradient(180deg,#7B45B5,#5B2A86)!important;color:#fff!important;font-weight:800!important;font-size:13px!important;border:0!important;box-shadow:0 8px 18px rgba(91,42,134,.25)!important;display:flex!important;align-items:center!important;justify-content:center!important;white-space:nowrap}
 html body ul.wc-block-product-template .genz-card-btns a.genz-buy-now.genz-buy-now.genz-buy-now:hover{filter:brightness(1.08);transform:translateY(-2px)}
 html body ul.wc-block-product-template .wc-block-components-product-image{overflow:hidden!important;border-radius:14px!important;background:#fff}
-html body ul.wc-block-product-template .wc-block-components-product-image img{transform:scale(1.25);transform-origin:50% 50%;transition:transform .6s cubic-bezier(.2,.8,.2,1);border-radius:0!important}
+html body ul.wc-block-product-template .wc-block-components-product-image img{transform:scale(1.25);transform-origin:50% 64%;transition:transform .6s cubic-bezier(.2,.8,.2,1);border-radius:0!important}
 html body ul.wc-block-product-template li:hover .wc-block-components-product-image img{transform:scale(1.31)}
 html body ul.wc-block-product-template .wc-block-components-product-sale-badge{z-index:2}
 .gz-more-wrap{display:flex;flex-direction:column;align-items:center;gap:10px;margin:30px 0 10px}
@@ -1319,7 +1319,7 @@ var c=h.querySelector('.hero .stage');if(c&&matchMedia('(pointer:fine)').matches
 .gx p,.gx .lead,.gx span,.gx a{font-weight:inherit}.gx{font-weight:500}
 @media(max-width:760px){.gx .cartic{flex-basis:38px;height:38px}.gx .buy{height:38px;font-size:12px}.gx .sale>strong{font-size:19px!important;white-space:normal}.gx .sale{padding-top:52%!important}.gx .fan{width:70%!important;height:42%!important}}
 
-.gx .pc .im{background:#fff}.gx .pc img{transform:scale(1.25)}.gx .pc:hover img{transform:scale(1.31)!important}
+.gx .pc .im{background:#fff}.gx .pc img{transform:scale(1.25);transform-origin:50% 64%}.gx .pc:hover img{transform:scale(1.31)!important}
 .gx .card3 img{transform:scale(1.2)}.gx .card3{overflow:hidden}
 .gx .ti img,.gx .fan img,.gx .mos img,.gch-fan img,.gx .cat img{object-fit:cover;object-position:50% 52%}
 .gx .ti{overflow:hidden}.gx .ti img{transform:none}
