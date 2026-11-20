@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.6.0
+ * Version: 1.7.0
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.6.0';
+	const V = '1.7.0';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -2439,3 +2439,233 @@ if ($top_off) echo '<div class="seal"><small>UP TO</small><span>' . (int) $top_o
 	}
 }
 GenZ_Hub::init();
+
+/* ===================================================================== */
+/* Bulk import + advertisement poster images + personalisation fields     */
+/* ===================================================================== */
+class GenZ_Import {
+	const NS = 'genz-hub/v1';
+	static function init() {
+		add_action('rest_api_init', [__CLASS__, 'routes']);
+		add_action('woocommerce_before_add_to_cart_button', [__CLASS__, 'p_fields']);
+		add_filter('woocommerce_add_to_cart_validation', [__CLASS__, 'p_validate'], 10, 3);
+		add_filter('woocommerce_add_cart_item_data', [__CLASS__, 'p_cart_data'], 10, 2);
+		add_filter('woocommerce_get_item_data', [__CLASS__, 'p_show'], 10, 2);
+		add_action('woocommerce_checkout_create_order_line_item', [__CLASS__, 'p_order'], 10, 4);
+	}
+	static function admin() { return current_user_can('manage_woocommerce'); }
+	static function routes() {
+		register_rest_route(self::NS, '/stagekey', ['methods' => 'POST', 'permission_callback' => [__CLASS__, 'admin'], 'callback' => function () {
+			$k = wp_generate_password(32, false); update_option('genz_stage_key', $k, false); update_option('genz_stage_until', time() + 6 * HOUR_IN_SECONDS, false); return ['key' => $k];
+		}]);
+		register_rest_route(self::NS, '/stage', ['methods' => 'POST', 'permission_callback' => '__return_true', 'callback' => [__CLASS__, 'r_stage']]);
+		register_rest_route(self::NS, '/stage-get', ['methods' => 'GET', 'permission_callback' => [__CLASS__, 'admin'], 'callback' => function () { return get_option('genz_stage_data', []); }]);
+		register_rest_route(self::NS, '/import', ['methods' => 'POST', 'permission_callback' => [__CLASS__, 'admin'], 'callback' => [__CLASS__, 'r_import']]);
+		register_rest_route(self::NS, '/poster', ['methods' => 'POST', 'permission_callback' => [__CLASS__, 'admin'], 'callback' => [__CLASS__, 'r_poster']]);
+	}
+	/* staging: cookie-less, key in query string, only stores supplier image lists */
+	static function r_stage($r) {
+		$k = (string) $r->get_param('key'); $want = get_option('genz_stage_key');
+		if (!$want || !hash_equals($want, $k) || time() > (int) get_option('genz_stage_until')) return new WP_Error('nope', 'bad key', ['status' => 403]);
+		$body = json_decode($r->get_body(), true); if (!is_array($body)) return new WP_Error('bad', 'json', ['status' => 400]);
+		$data = get_option('genz_stage_data', []); if (!is_array($data)) $data = [];
+		foreach ($body as $id => $row) {
+			$id = sanitize_key($id); if (!$id) continue;
+			$imgs = [];
+			foreach ((array) ($row['imgs'] ?? []) as $u) { $u = esc_url_raw($u); if ($u && preg_match('#^https://ae-pic-a1\.aliexpress-media\.com/kf/#', $u)) $imgs[] = $u; }
+			$data[$id] = ['pid' => preg_replace('/\D/', '', (string) ($row['pid'] ?? '')), 'title' => sanitize_text_field($row['title'] ?? ''), 'imgs' => array_slice(array_values(array_unique($imgs)), 0, 7)];
+		}
+		update_option('genz_stage_data', $data, false);
+		return ['ok' => count($data)];
+	}
+	/* ---------- fonts */
+	static function font($w = 'ExtraBold') {
+		$dir = wp_upload_dir()['basedir'] . '/genz-fonts'; wp_mkdir_p($dir);
+		$f = $dir . "/Poppins-$w.ttf";
+		if (!file_exists($f) || filesize($f) < 10000) {
+			$res = wp_remote_get("https://raw.githubusercontent.com/google/fonts/main/ofl/poppins/Poppins-$w.ttf", ['timeout' => 30]);
+			if (!is_wp_error($res) && wp_remote_retrieve_response_code($res) === 200) file_put_contents($f, wp_remote_retrieve_body($res));
+		}
+		return file_exists($f) ? $f : '';
+	}
+	static function hex($im, $h, $a = 0) { $h = ltrim($h, '#'); return imagecolorallocatealpha($im, hexdec(substr($h, 0, 2)), hexdec(substr($h, 2, 2)), hexdec(substr($h, 4, 2)), $a); }
+	static function themes() {
+		return [
+			'christmas' => ['#7A0E1A', '#C8102E', '#FFFFFF', '#F1D9A7', '#1E1A24', 'CHRISTMAS GIFT'],
+			'toys' => ['#FFE7A8', '#FFB347', '#2B1A0B', '#5B2A86', '#FFFFFF', 'TOP TOY PICK'],
+			'plush' => ['#FBE3F0', '#D9C8FF', '#3B1F4E', '#5B2A86', '#FFFFFF', 'SUPER SOFT'],
+			'personal' => ['#F8EEE2', '#E7CBA6', '#3B1F0E', '#C8102E', '#FFFFFF', 'PERSONALISED'],
+		];
+	}
+	static function text_center($im, $size, $font, $col, $y, $txt, $W = 1200) {
+		$b = imagettfbbox($size, 0, $font, $txt); $w = $b[2] - $b[0];
+		imagettftext($im, $size, 0, (int) (($W - $w) / 2), $y, $col, $font, $txt);
+	}
+	static function wrap($txt, $size, $font, $max) {
+		$words = preg_split('/\s+/', $txt); $lines = []; $cur = '';
+		foreach ($words as $w) { $t = trim("$cur $w"); $b = imagettfbbox($size, 0, $font, $t); if ($b[2] - $b[0] > $max && $cur !== '') { $lines[] = $cur; $cur = $w; } else $cur = $t; }
+		if ($cur !== '') $lines[] = $cur; return array_slice($lines, 0, 2);
+	}
+	static function rrect($im, $x1, $y1, $x2, $y2, $r, $col) {
+		imagefilledrectangle($im, $x1 + $r, $y1, $x2 - $r, $y2, $col); imagefilledrectangle($im, $x1, $y1 + $r, $x2, $y2 - $r, $col);
+		foreach ([[$x1 + $r, $y1 + $r], [$x2 - $r, $y1 + $r], [$x1 + $r, $y2 - $r], [$x2 - $r, $y2 - $r]] as $c) imagefilledellipse($im, $c[0], $c[1], $r * 2, $r * 2, $col);
+	}
+	/* poster: 1200x1200 advert style image from a product photo */
+	static function make_poster($src_file, $headline, $price, $theme, $tag = '') {
+		if (!function_exists('imagettftext')) return new WP_Error('gd', 'GD freetype missing');
+		$bin = file_get_contents($src_file); $p = @imagecreatefromstring($bin); if (!$p) return new WP_Error('img', 'cannot read image');
+		$th = self::themes()[$theme] ?? self::themes()['toys'];
+		$fb = self::font('ExtraBold'); $fs = self::font('SemiBold'); if (!$fb || !$fs) return new WP_Error('font', 'font download failed');
+		$W = 1200; $im = imagecreatetruecolor($W, $W); imagealphablending($im, true);
+		// vertical gradient
+		$a = sscanf($th[0], '#%02x%02x%02x'); $b = sscanf($th[1], '#%02x%02x%02x');
+		for ($y = 0; $y < $W; $y++) { $t = $y / $W; $c = imagecolorallocate($im, (int) ($a[0] + ($b[0] - $a[0]) * $t), (int) ($a[1] + ($b[1] - $a[1]) * $t), (int) ($a[2] + ($b[2] - $a[2]) * $t)); imageline($im, 0, $y, $W, $y, $c); }
+		// decorative glow circles
+		for ($i = 0; $i < 14; $i++) imagefilledellipse($im, 600, 690, 980 - $i * 40, 980 - $i * 40, imagecolorallocatealpha($im, 255, 255, 255, 120));
+		imagefilledellipse($im, 110, 1100, 300, 300, imagecolorallocatealpha($im, 255, 255, 255, 105));
+		imagefilledellipse($im, 1120, 230, 220, 220, imagecolorallocatealpha($im, 255, 255, 255, 110));
+		// product photo: centre-crop square, then zoom in slightly to drop supplier borders
+		$pw = imagesx($p); $ph = imagesy($p); $s = (int) (min($pw, $ph) * 0.94); $sx = (int) (($pw - $s) / 2); $sy = (int) (($ph - $s) / 2);
+		$S = 740; $X = (int) (($W - $S) / 2); $Y = 290;
+		for ($i = 10; $i >= 1; $i--) self::rrect($im, $X - 8 + $i * 2, $Y - 8 + $i * 4, $X + $S + 8 + $i * 2, $Y + $S + 8 + $i * 4, 44, imagecolorallocatealpha($im, 30, 10, 40, 118));
+		self::rrect($im, $X - 12, $Y - 12, $X + $S + 12, $Y + $S + 12, 46, imagecolorallocate($im, 255, 255, 255));
+		$tile = imagecreatetruecolor($S, $S); imagecopyresampled($tile, $p, 0, 0, $sx, $sy, $S, $S, $s, $s);
+		// rounded corners: paint corners with white frame colour
+		$white = imagecolorallocate($tile, 255, 255, 255); $r = 36;
+		for ($yy = 0; $yy < $r; $yy++) for ($xx = 0; $xx < $r; $xx++) { if (($r - $xx) ** 2 + ($r - $yy) ** 2 > $r * $r) { imagesetpixel($tile, $xx, $yy, $white); imagesetpixel($tile, $S - 1 - $xx, $yy, $white); imagesetpixel($tile, $xx, $S - 1 - $yy, $white); imagesetpixel($tile, $S - 1 - $xx, $S - 1 - $yy, $white); } }
+		imagecopy($im, $tile, $X, $Y, 0, 0, $S, $S);
+		// top tag pill
+		$tagtxt = strtoupper($tag ?: $th[5]); $bb = imagettfbbox(22, 0, $fb, $tagtxt); $tw = $bb[2] - $bb[0] + 56;
+		self::rrect($im, (int) (($W - $tw) / 2), 46, (int) (($W + $tw) / 2), 98, 26, self::hex($im, $th[3])); 
+		self::text_center($im, 22, $fb, self::hex($im, $th[4]), 83, $tagtxt);
+		// headline
+		$lines = self::wrap($headline, 58, $fb, 1040); $y = count($lines) > 1 ? 176 : 205;
+		foreach ($lines as $ln) { self::text_center($im, 58, $fb, self::hex($im, $th[2]), $y, $ln); $y += 74; }
+		// price burst
+		if ($price) {
+			imagefilledellipse($im, 1030, 1000, 250, 250, imagecolorallocatealpha($im, 0, 0, 0, 100));
+			imagefilledellipse($im, 1024, 990, 236, 236, self::hex($im, '#F1D9A7')); imagefilledellipse($im, 1024, 990, 210, 210, self::hex($im, '#C9A35B'));
+			$pt = '£' . (fmod((float) $price, 1) ? number_format((float) $price, 2) : (int) $price); $sz = strlen($pt) > 5 ? 40 : 48; $bb = imagettfbbox($sz, 0, $fb, $pt);
+			imagettftext($im, 18, 0, 984, 948, self::hex($im, '#3A2406'), $fb, 'ONLY');
+			imagettftext($im, $sz, 0, (int) (1024 - ($bb[2] - $bb[0]) / 2), 1012, self::hex($im, '#1E1A24'), $fb, $pt);
+		}
+		// bottom ribbon
+		self::rrect($im, 60, 1060, 680, 1140, 40, self::hex($im, '#1E1A24'));
+		imagettftext($im, 26, 0, 100, 1113, self::hex($im, '#FFFFFF'), $fb, 'FREE UK DELIVERY');
+		imagettftext($im, 20, 0, 430, 1112, self::hex($im, '#F1D9A7'), $fs, '· 30-day returns');
+		// brand
+		imagettftext($im, 20, 0, 62, 1170, self::hex($im, $th[2], 30), $fs, 'genzgadget.uk');
+		$up = wp_upload_dir(); $dir = $up['path']; $name = 'genz-poster-' . wp_generate_password(8, false) . '.jpg'; $file = "$dir/$name";
+		imagejpeg($im, $file, 88); imagedestroy($im); imagedestroy($p); imagedestroy($tile);
+		return $file;
+	}
+	static function attach_file($file, $post_id, $title) {
+		$type = wp_check_filetype($file);
+		$aid = wp_insert_attachment(['post_mime_type' => $type['type'], 'post_title' => $title, 'post_status' => 'inherit'], $file, $post_id);
+		require_once ABSPATH . 'wp-admin/includes/image.php';
+		wp_update_attachment_metadata($aid, wp_generate_attachment_metadata($aid, $file));
+		update_post_meta($aid, '_wp_attachment_image_alt', $title);
+		return $aid;
+	}
+	static function sideload($url, $post_id, $title) {
+		require_once ABSPATH . 'wp-admin/includes/file.php'; require_once ABSPATH . 'wp-admin/includes/media.php'; require_once ABSPATH . 'wp-admin/includes/image.php';
+		$tmp = download_url($url, 40); if (is_wp_error($tmp)) return $tmp;
+		$ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH), PATHINFO_EXTENSION)) ?: 'jpg';
+		$fa = ['name' => sanitize_title($title) . '-' . wp_generate_password(5, false) . '.' . $ext, 'tmp_name' => $tmp];
+		$aid = media_handle_sideload($fa, $post_id, $title); if (is_wp_error($aid)) { @unlink($tmp); return $aid; }
+		update_post_meta($aid, '_wp_attachment_image_alt', $title);
+		return $aid;
+	}
+	static function cat_ids($slugs) {
+		$ids = [];
+		$names = ['toys-games' => 'Toys & Games', 'plush-toys' => 'Plush Toys', 'christmas-decorations' => 'Christmas Decorations', 'personalised-gifts' => 'Personalised Gifts', 'kids-gifts' => 'Gifts for Kids'];
+		foreach ((array) $slugs as $sl) {
+			$t = get_term_by('slug', $sl, 'product_cat');
+			if (!$t && isset($names[$sl])) { $n = wp_insert_term($names[$sl], 'product_cat', ['slug' => $sl]); if (!is_wp_error($n)) $t = get_term($n['term_id'], 'product_cat'); }
+			if ($t && !is_wp_error($t)) $ids[] = (int) $t->term_id;
+		}
+		return $ids;
+	}
+	/* one product per call */
+	static function r_import($r) {
+		@set_time_limit(180);
+		$it = $r->get_json_params(); $src = sanitize_key($it['src'] ?? ''); if (!$src) return new WP_Error('bad', 'src');
+		$exists = get_posts(['post_type' => 'product', 'post_status' => 'any', 'meta_key' => '_genz_src', 'meta_value' => $src, 'fields' => 'ids', 'numberposts' => 1]);
+		if ($exists) return ['skip' => 'exists', 'id' => $exists[0]];
+		$name = sanitize_text_field($it['name']);
+		$dupe = get_page_by_title($name, OBJECT, 'product'); if ($dupe) return ['skip' => 'same-name', 'id' => $dupe->ID];
+		$stage = get_option('genz_stage_data', []); $imgs = $it['imgs'] ?? ($stage[$src]['imgs'] ?? []);
+		if (!$imgs) return new WP_Error('noimg', 'no images for ' . $src);
+		$price = wc_format_decimal($it['price']); $opts = $it['attr'] ?? null;
+		$p = ($opts && !empty($opts['values'])) ? new WC_Product_Variable() : new WC_Product_Simple();
+		$p->set_name($name); $p->set_status('draft');
+		$p->set_description(wp_kses_post($it['desc'] ?? '')); $p->set_short_description(wp_kses_post($it['short'] ?? ''));
+		$p->set_category_ids(self::cat_ids($it['cats'] ?? []));
+		if (!$opts) { $p->set_regular_price($price); $p->set_manage_stock(true); $p->set_stock_quantity(50); $p->set_stock_status('instock'); }
+		else {
+			$a = new WC_Product_Attribute(); $a->set_name(sanitize_text_field($opts['name'])); $a->set_options(array_map('sanitize_text_field', $opts['values'])); $a->set_visible(true); $a->set_variation(true);
+			$p->set_attributes([$a]);
+		}
+		$pid = $p->save();
+		update_post_meta($pid, '_genz_src', $src);
+		if (!empty($it['pfields'])) update_post_meta($pid, '_genz_pfields', array_map('sanitize_text_field', (array) $it['pfields']));
+		if ($opts) {
+			foreach ($opts['values'] as $v) {
+				$var = new WC_Product_Variation(); $var->set_parent_id($pid);
+				$var->set_attributes([sanitize_title($opts['name']) => sanitize_text_field($v)]);
+				$var->set_regular_price($price); $var->set_manage_stock(true); $var->set_stock_quantity(50); $var->set_stock_status('instock'); $var->save();
+			}
+			WC_Product_Variable::sync($pid);
+		}
+		// images
+		$gal = []; $first_file = '';
+		foreach (array_slice($imgs, 0, 6) as $i => $u) {
+			$aid = self::sideload($u, $pid, $name . ($i ? " – view $i" : ''));
+			if (!is_wp_error($aid)) { $gal[] = $aid; if (!$first_file) $first_file = get_attached_file($aid); }
+		}
+		if (!$gal) { wp_delete_post($pid, true); return new WP_Error('img', 'image download failed'); }
+		$feat = $gal[0];
+		if ($first_file) {
+			$poster = self::make_poster($first_file, $it['headline'] ?? $name, $price, $it['theme'] ?? 'toys', $it['tag'] ?? '');
+			if (!is_wp_error($poster)) $feat = self::attach_file($poster, $pid, $name);
+		}
+		$p = wc_get_product($pid); $p->set_image_id($feat); $p->set_gallery_image_ids($feat === $gal[0] ? array_slice($gal, 1) : $gal);
+		$p->set_status('publish'); $p->save();
+		return ['ok' => true, 'id' => $pid, 'url' => get_permalink($pid), 'poster' => wp_get_attachment_url($feat)];
+	}
+	/* rebuild poster for an existing product */
+	static function r_poster($r) {
+		$pid = (int) $r->get_param('id'); $p = wc_get_product($pid); if (!$p) return new WP_Error('nf', 'no product');
+		$gal = $p->get_gallery_image_ids(); $src = $gal ? get_attached_file($gal[0]) : get_attached_file($p->get_image_id());
+		$poster = self::make_poster($src, $r->get_param('headline') ?: $p->get_name(), $p->get_price(), $r->get_param('theme') ?: 'toys', (string) $r->get_param('tag'));
+		if (is_wp_error($poster)) return $poster;
+		$aid = self::attach_file($poster, $pid, $p->get_name()); $p->set_image_id($aid); $p->save();
+		return ['ok' => true, 'poster' => wp_get_attachment_url($aid)];
+	}
+	/* ---------- personalisation fields on product page */
+	static function fields_for($pid) { $f = get_post_meta($pid, '_genz_pfields', true); return is_array($f) ? $f : []; }
+	static function p_fields() {
+		global $product; if (!$product) return; $f = self::fields_for($product->get_id()); if (!$f) return;
+		echo '<div class="genz-pf" style="margin:0 0 16px;padding:16px;border:1px solid rgba(91,42,134,.18);border-radius:16px;background:#FBF7FF"><div style="font-weight:800;margin-bottom:10px">✨ Personalise it</div>';
+		foreach ($f as $i => $label) {
+			$req = substr($label, -1) !== '?'; $lab = rtrim($label, '?'); $key = 'genz_pf_' . $i;
+			$photo = stripos($lab, 'photo') !== false;
+			echo '<label style="display:block;font-size:14px;font-weight:600;margin:8px 0 4px">' . esc_html($lab) . ($req ? ' *' : ' (optional)') . '</label>';
+			if ($photo) echo '<input type="url" name="' . esc_attr($key) . '" placeholder="Paste a link to your photo (Google Photos, Dropbox…) or type EMAIL" style="width:100%;padding:12px;border-radius:10px;border:1px solid #d8cfe6"' . ($req ? ' required' : '') . '><small style="color:#5E566A">No link? Type <b>EMAIL</b> and reply to your order confirmation with the photo.</small>';
+			else echo '<input type="text" maxlength="40" name="' . esc_attr($key) . '" style="width:100%;padding:12px;border-radius:10px;border:1px solid #d8cfe6"' . ($req ? ' required' : '') . '>';
+		}
+		echo '<small style="display:block;margin-top:8px;color:#5E566A">Please check spelling – we print exactly what you type.</small></div>';
+	}
+	static function p_validate($ok, $pid, $qty) {
+		foreach (self::fields_for($pid) as $i => $label) { if (substr($label, -1) === '?') continue; $v = trim((string) ($_POST['genz_pf_' . $i] ?? '')); if ($v === '') { wc_add_notice(sprintf('Please fill in "%s" to personalise your gift.', esc_html($label)), 'error'); return false; } }
+		return $ok;
+	}
+	static function p_cart_data($data, $pid) {
+		foreach (self::fields_for($pid) as $i => $label) { $v = sanitize_text_field(wp_unslash($_POST['genz_pf_' . $i] ?? '')); if ($v !== '') $data['genz_pf'][rtrim($label, '?')] = $v; }
+		if (!empty($data['genz_pf'])) $data['genz_pf_key'] = md5(wp_json_encode($data['genz_pf']));
+		return $data;
+	}
+	static function p_show($items, $ci) { foreach ((array) ($ci['genz_pf'] ?? []) as $k => $v) $items[] = ['name' => $k, 'value' => esc_html($v)]; return $items; }
+	static function p_order($item, $key, $values, $order) { foreach ((array) ($values['genz_pf'] ?? []) as $k => $v) $item->add_meta_data($k, $v, true); }
+}
+GenZ_Import::init();
