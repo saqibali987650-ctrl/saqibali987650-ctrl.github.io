@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.7.1
+ * Version: 1.7.2
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.7.1';
+	const V = '1.7.2';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -2641,6 +2641,7 @@ class GenZ_Import {
 	static function fields_for($pid) { $f = get_post_meta($pid, '_genz_pfields', true); return is_array($f) ? $f : []; }
 	static function p_fields() {
 		global $product; if (!$product) return; $f = self::fields_for($product->get_id()); if (!$f) return;
+		echo '<style>html body .genz-pf input{background:#fff!important;color:#1E1A24!important;border:1px solid #d8cfe6!important;border-radius:10px!important}html body .genz-pf input::placeholder{color:#8a8296!important}</style>';
 		echo '<div class="genz-pf" style="margin:0 0 16px;padding:16px;border:1px solid rgba(91,42,134,.18);border-radius:16px;background:#FBF7FF"><div style="font-weight:800;margin-bottom:10px">✨ Personalise it</div>';
 		foreach ($f as $i => $label) {
 			$req = substr($label, -1) !== '?'; $lab = rtrim($label, '?'); $key = 'genz_pf_' . $i;
