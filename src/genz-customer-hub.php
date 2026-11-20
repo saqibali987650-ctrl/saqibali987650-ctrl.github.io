@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.3.5
+ * Version: 1.4.0
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.3.5';
+	const V = '1.4.0';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -33,6 +33,11 @@ final class GenZ_Hub {
 		add_action('wp_footer', [__CLASS__, 'chat_widget']);
 		add_shortcode('genz_track_order', [__CLASS__, 'sc_track']);
 		add_shortcode('genz_subscribe', [__CLASS__, 'sc_subscribe']);
+		add_shortcode('genz_home', [__CLASS__, 'sc_home']);
+		add_action('wp_head', [__CLASS__, 'skin_head'], 9999);
+		add_action('admin_post_genz_hub_skin', [__CLASS__, 'admin_skin']);
+		add_action('save_post_product', [__CLASS__, 'clear_home_cache']);
+		add_action('woocommerce_update_product', [__CLASS__, 'clear_home_cache']);
 		add_filter('render_block', [__CLASS__, 'footer_band'], 10, 2);
 
 		// Checkout: phone required (classic + blocks) and newsletter opt-in.
@@ -914,6 +919,254 @@ JS;
 		return $generic;
 	}
 
+	/* ------------------------------------------------ Luxe Light skin + home */
+	static function skin() { return get_option('genz_skin', 'classic'); }
+	static function skin_css() {
+		return <<<'CSS'
+:root,body{--wp--preset--color--base:#FBF8F4!important;--wp--preset--color--contrast:#1E1A24!important;--wp--preset--color--accent-1:#5B2A86!important;--wp--preset--color--accent-2:#7B45B5!important;--wp--preset--color--accent-3:#C9A35B!important;--wp--preset--color--accent-4:#5E566A!important;--wp--preset--color--accent-5:#FFFFFF!important;--wp--preset--color--accent-6:#EFE7F7!important}
+html body{background:#FBF8F4!important;color:#1E1A24!important;font-family:'Plus Jakarta Sans','Manrope',system-ui,sans-serif}
+html body .wp-site-blocks{background:radial-gradient(60% 30% at 90% 0%,#EFE3FB 0%,rgba(251,248,244,0) 60%)}
+html body h1,html body h2,html body h3,html body h4,html body .wp-block-post-title,html body .wp-block-query-title{color:#1E1A24!important}
+html body h1,html body h2,html body .wp-block-query-title{font-family:'Bodoni Moda',Georgia,serif!important;font-weight:600!important;letter-spacing:-.01em}
+html body a{color:inherit}html body a:hover{color:#5B2A86}
+html body main p,html body main li{color:#3B3546}
+html body .wp-element-button,html body .wp-block-button__link,html body button.single_add_to_cart_button,html body .add_to_cart_button,html body .checkout-button,html body .wc-block-components-button:not(.is-link){background:linear-gradient(180deg,#7B45B5,#5B2A86)!important;color:#fff!important;border:0!important;border-radius:12px!important;box-shadow:0 10px 24px rgba(91,42,134,.25)}
+html body ins .woocommerce-Price-amount,html body .price ins,html body .wc-block-components-product-price ins,html body .wc-block-components-product-price__value.is-discounted{color:#5B2A86!important}
+html body del,html body .wc-block-components-product-price del{color:#9A93A3!important}
+html body .genz-marquee{background:linear-gradient(90deg,#F6E3B8,#F1D9A7)!important;color:#1A1206!important}
+html body .genz-marquee *{color:#1A1206!important}
+html body header.wp-block-template-part{position:relative;z-index:50;background:rgba(255,255,255,.92);backdrop-filter:blur(12px);border-bottom:1px solid #EDE5F3;box-shadow:0 8px 30px rgba(70,30,110,.06)}
+html body header.wp-block-template-part *{color:#1E1A24}
+html body header.wp-block-template-part .wp-block-navigation__submenu-container{background:#fff!important;border:1px solid #EDE5F3!important;border-radius:14px!important;box-shadow:0 20px 50px rgba(70,30,110,.15)!important}
+html body header.wp-block-template-part .wp-block-navigation__submenu-container a:hover{background:#F4EEF9!important;color:#5B2A86!important}
+html body header.wp-block-template-part .wp-block-site-logo{background:linear-gradient(135deg,#2A1840,#120A1E);border-radius:14px;padding:6px 12px;box-shadow:0 8px 20px rgba(42,24,64,.25)}
+html body header.wp-block-template-part .wp-block-navigation__responsive-container.is-menu-open{background:#FBF8F4!important}
+html body .wp-block-search__input{background:#fff!important;color:#1E1A24!important;border:1px solid rgba(91,42,134,.2)!important;border-radius:12px!important}
+html body .wp-block-search__button{background:#5B2A86!important;color:#fff!important;border-radius:12px!important}
+html body .wp-block-search__button svg{fill:#fff!important}
+html body .wc-block-mini-cart__badge{background:#C9A35B!important;color:#1A1206!important}
+html body main .wc-block-product,html body main li.product,html body main .wc-block-grid__product{background:#fff;border:1px solid rgba(91,42,134,.10);border-radius:20px;padding:12px;box-shadow:0 14px 34px rgba(70,30,110,.08);transition:transform .45s cubic-bezier(.2,.8,.2,1),box-shadow .45s}
+html body main .wc-block-product:hover,html body main li.product:hover,html body main .wc-block-grid__product:hover{transform:perspective(900px) rotateX(3deg) rotateY(-5deg) translateY(-6px);box-shadow:0 26px 54px rgba(70,30,110,.16),0 0 0 1px rgba(201,163,91,.5)}
+html body main .wc-block-components-product-image img,html body main li.product img{border-radius:14px}
+html body .wc-block-components-product-sale-badge,html body .onsale{background:#F1D9A7!important;color:#1A1206!important;border:0!important;border-radius:999px!important;font-weight:800!important}
+html body .woocommerce-breadcrumb,html body .wc-block-breadcrumbs{color:#5E566A!important}
+html body .wc-block-components-panel,html body .wp-block-woocommerce-cart,html body .wp-block-woocommerce-checkout{color:#1E1A24}
+html body input:not([type=checkbox]):not([type=radio]),html body select,html body textarea{background:#fff;color:#1E1A24}
+html body .genz-sub-band{background:linear-gradient(135deg,#2A1840,#120A1E)!important}
+html body footer.wp-block-template-part{background:linear-gradient(180deg,#2A1840,#140B22)!important}
+html body footer.wp-block-template-part,html body footer.wp-block-template-part *{color:#EDE6F6}
+html body footer.wp-block-template-part a:hover{color:#F1D9A7!important}
+html body .genz-card,html body .genz-chat-panel{color:#1E1A24}
+CSS;
+	}
+	static function skin_head() {
+		if (is_admin() || self::skin() !== 'luxe') return;
+		echo '<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">';
+		echo '<style id="genz-luxe-skin">' . self::skin_css() . '</style>'; // phpcs:ignore
+	}
+	static function cat_products($slug, $limit = 8) {
+		$args = ['status' => 'publish', 'limit' => $limit, 'stock_status' => 'instock', 'visibility' => 'catalog', 'orderby' => 'meta_value_num', 'meta_key' => 'total_sales', 'order' => 'DESC'];
+		if ($slug) $args['category'] = [$slug];
+		$out = [];
+		foreach (wc_get_products($args) as $p) {
+			if (!$p->get_image_id()) continue;
+			$reg = (float) $p->get_regular_price(); $now = (float) wc_get_price_to_display($p);
+			$out[] = ['id' => $p->get_id(), 'n' => $p->get_name(), 'u' => get_permalink($p->get_id()),
+				'img' => wp_get_attachment_image_url($p->get_image_id(), 'woocommerce_thumbnail') ?: wp_get_attachment_image_url($p->get_image_id(), 'medium'),
+				'big' => wp_get_attachment_image_url($p->get_image_id(), 'woocommerce_single'),
+				'num' => $now, 'now' => wc_price($now), 'was' => ($p->is_on_sale() && $reg > $now) ? wc_price($reg) : '',
+				'off' => ($p->is_on_sale() && $reg > $now) ? (int) round(100 - $now / $reg * 100) : 0,
+				'rt' => (float) $p->get_average_rating(), 'rc' => (int) $p->get_review_count(),
+				'cart' => $p->is_type('simple') ? add_query_arg('add-to-cart', $p->get_id(), wc_get_cart_url()) : get_permalink($p->get_id())];
+		}
+		return $out;
+	}
+	static function card_html($p) {
+		$h = '<article class="pc"><a class="im" href="' . esc_url($p['u']) . '"><img src="' . esc_url($p['img']) . '" alt="' . esc_attr($p['n']) . '" loading="lazy">' . ($p['off'] ? '<span class="off">−' . (int) $p['off'] . '%</span>' : '') . '</a>';
+		$h .= '<a class="nm" href="' . esc_url($p['u']) . '">' . esc_html($p['n']) . '</a>';
+		if ($p['rt']) $h .= '<div class="st">' . esc_html(self::preview_stars($p['rt'])) . ' <span>(' . (int) $p['rc'] . ')</span></div>';
+		$h .= '<div class="row"><span class="price">' . wp_kses_post($p['now']) . ($p['was'] ? '<del>' . wp_kses_post($p['was']) . '</del>' : '') . '</span><a class="add" href="' . esc_url($p['cart']) . '" rel="nofollow">Add to bag</a></div></article>';
+		return $h;
+	}
+	static function term_url($slug) { $t = get_term_by('slug', $slug, 'product_cat'); return $t && !is_wp_error(get_term_link($t)) ? get_term_link($t) : home_url('/shop/'); }
+	static function sc_home() {
+		$t0 = microtime(true);
+		$cached = get_transient('genz_home_html');
+		if ($cached && !current_user_can('manage_woocommerce')) return $cached;
+		$all = self::cat_products('', 40);
+		$hero = [];
+		foreach ($all as $p) { if ($p['num'] >= 25) $hero[] = $p; if (count($hero) >= 3) break; }
+		if (count($hero) < 3) $hero = array_slice($all, 0, 3);
+		$top_off = 0; foreach ($all as $p) $top_off = max($top_off, $p['off']);
+		global $wpdb;
+		$rev_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->comments} c JOIN {$wpdb->posts} p ON p.ID=c.comment_post_ID WHERE p.post_type='product' AND c.comment_approved='1' AND c.comment_type='review'");
+		$end = strtotime('2026-12-01 00:00:00 Europe/London');
+		ob_start(); ?>
+<div class="gx gx-home">
+<section class="hero">
+<div>
+<span class="chip">TRENDING GADGETS &amp; GIFTS · UK</span>
+<h1>Gadgets &amp; gifts that <span class="grad">wow</span> this Christmas.</h1>
+<p class="lead">Hand-picked tech and clever gadgets, gift-ready from Nottingham and delivered free across the UK.</p>
+<a class="btn btn-p" href="<?php echo esc_url(self::term_url('black-friday-deals')); ?>">Shop Black Friday</a> <a class="btn btn-o" href="<?php echo esc_url(self::term_url('christmas-gifts')); ?>">Christmas gift shop</a>
+<div class="proof"><span><b><?php echo esc_html(number_format($rev_count)); ?>+</b> customer reviews</span><span><b>Free</b> UK delivery</span><span><b>30-day</b> returns</span></div>
+</div>
+<div class="stage" aria-label="Featured products">
+<div class="glow"></div><div class="pod"></div>
+<?php $pos = [['c1', 'left:28%;top:20px;width:290px;z-index:2;transform:perspective(900px) rotateY(-12deg) rotateX(5deg)'], ['c2', 'left:2%;top:190px;width:200px;transform:perspective(900px) rotateY(16deg) rotateX(4deg)'], ['c3', 'right:0;top:210px;width:200px;transform:perspective(900px) rotateY(-16deg) rotateX(4deg)']];
+foreach ($hero as $i => $p) { if (!isset($pos[$i])) break; echo '<a class="card3 ' . $pos[$i][0] . '" href="' . esc_url($p['u']) . '" style="' . esc_attr($pos[$i][1]) . '"><img src="' . esc_url($p['big'] ?: $p['img']) . '" alt="' . esc_attr($p['n']) . '"><div class="cap"><b>' . esc_html($p['n']) . '</b><span class="price">' . wp_kses_post($p['now']) . ($p['was'] ? '<del>' . wp_kses_post($p['was']) . '</del>' : '') . '</span></div></a>'; }
+if ($top_off) echo '<div class="seal"><small>UP TO</small><span>' . (int) $top_off . '%</span><small>OFF</small></div>'; ?>
+</div>
+</section>
+<section class="cd" aria-label="Countdown"><div><b style="font-size:18px">Black Friday prices end Cyber Monday</b><div class="mut" style="font-size:14px">Order today, dispatched from Nottingham</div></div>
+<div class="t" data-end="<?php echo (int) $end; ?>"><div><b data-u="d">--</b><small>DAYS</small></div><div><b data-u="h">--</b><small>HRS</small></div><div><b data-u="m">--</b><small>MINS</small></div><div><b data-u="s">--</b><small>SECS</small></div></div>
+<a class="btn btn-p" href="<?php echo esc_url(self::term_url('black-friday-deals')); ?>">Grab the deals</a></section>
+<section class="sales" aria-label="Sales">
+<a class="sale" href="<?php echo esc_url(self::term_url('black-friday-deals')); ?>" style="background:linear-gradient(150deg,#2A1840,#120A1E);color:#fff"><small style="color:#F1D9A7">BLACK FRIDAY</small><strong>Up to <?php echo (int) max(30, $top_off); ?>% off</strong><span style="color:#D9CDE8">Shop deals →</span></a>
+<a class="sale" href="<?php echo esc_url(self::term_url('christmas-gifts')); ?>" style="background:linear-gradient(150deg,#1E4A36,#0B2318);color:#F2FAF5"><small style="color:#BFE7D0">CHRISTMAS SALE</small><strong>Gifts from £5</strong><span style="color:#CFE6DA">Christmas gift shop →</span></a>
+<a class="sale" href="<?php echo esc_url(self::term_url('new-year-sale')); ?>" style="background:linear-gradient(150deg,#F6E3B8,#C89B4E);color:#1A1206"><small>NEW YEAR SALE</small><strong>20% off 2+ items</strong><span style="font-weight:700">Code BUNDLE20 →</span></a>
+<a class="sale" href="<?php echo esc_url(self::term_url('clearance-sale')); ?>" style="background:linear-gradient(150deg,#6E1A28,#2B070E);color:#FFEFF1"><small style="color:#FFC2CB">CLEARANCE</small><strong>Final stock</strong><span style="color:#F4C9CF">30% off and more →</span></a>
+</section>
+<section style="margin:34px 0 10px"><div class="row" style="align-items:end;margin-bottom:16px"><h2>Shop by category</h2><a class="more" href="<?php echo esc_url(home_url('/shop/')); ?>">All products →</a></div>
+<div class="cats"><?php
+		$cats = [['christmas-gifts', 'Christmas Gift Shop'], ['black-friday-deals', 'Black Friday Deals'], ['gifts-for-him', 'Gifts for Him'], ['gifts-for-her', 'Gifts for Her'], ['gifts-for-teens', 'Gifts for Teens'], ['stocking-fillers', 'Stocking Fillers'], ['tech-gadgets', 'Smart Tech'], ['tech-gaming-picks', 'Gaming'], ['winter-warmers-cosy-gifts', 'Winter Warmers'], ['home-kitchen', 'Home &amp; Kitchen'], ['kitchen-tools-utensils', 'Kitchen Tools'], ['home-living', 'Home &amp; Living'], ['lights-cosy-home', 'Lights &amp; Cosy'], ['health-beauty', 'Beauty &amp; Skincare'], ['health-wellness', 'Health &amp; Wellness'], ['mens-grooming', "Men's Grooming"], ['car-accessories', 'Car Accessories'], ['bags-travel', 'Bags &amp; Travel'], ['fashion-accessories', 'Fashion'], ['pet-essentials', 'Pets'], ['new-year-sale', 'New Year Sale'], ['clearance-sale', 'Clearance'], ['gifts-under-10', 'Gifts under £10'], ['gifts-under-25', 'Gifts under £25']];
+		foreach ($cats as $c) {
+			$t = get_term_by('slug', $c[0], 'product_cat');
+			if (!$t || !$t->count) continue;
+			$img = '';
+			$tid = (int) get_term_meta($t->term_id, 'thumbnail_id', true);
+			if ($tid) $img = wp_get_attachment_image_url($tid, 'woocommerce_thumbnail');
+			if (!$img) { $pp = self::cat_products($c[0], 1); if ($pp) $img = $pp[0]['img']; }
+			echo '<a class="cat" href="' . esc_url(get_term_link($t)) . '"><span class="ci">' . ($img ? '<img src="' . esc_url($img) . '" alt="" loading="lazy">' : '') . '</span><b>' . wp_kses_post($c[1]) . '</b><small>' . (int) $t->count . ' products</small></a>';
+		} ?></div></section>
+<?php
+		$rails = [
+			['christmas-gifts', 'The Christmas Gift Shop', 'Gifts they will actually use, delivered free across the UK.', 'linear-gradient(135deg,#1E4A36,#0B2318)', '#BFE7D0', 'CHRISTMAS'],
+			['black-friday-deals', 'Black Friday deals', 'Our biggest savings of the year, for a limited time.', 'linear-gradient(135deg,#2A1840,#120A1E)', '#F1D9A7', 'BLACK FRIDAY'],
+			['gifts-for-him', 'Gifts for him', 'Dads, brothers, boyfriends and the man who has everything.', 'linear-gradient(135deg,#14213D,#0A1226)', '#D8C08A', 'FOR HIM'],
+			['gifts-for-her', 'Gifts for her', 'Thoughtful beauty, cosy and clever picks for her.', 'linear-gradient(135deg,#7A2E58,#3B1029)', '#F6C9DE', 'FOR HER'],
+			['stocking-fillers', 'Stocking fillers', 'Little gifts, big smiles, from £5.', 'linear-gradient(135deg,#8E2F22,#4A1410)', '#F6C9BE', 'STOCKING FILLERS'],
+			['tech-gadgets', 'Smart tech &amp; gadgets', 'Projectors, consoles and clever tech picks.', 'linear-gradient(135deg,#2A1840,#0E2A3B)', '#B9E3F5', 'TECH'],
+			['winter-warmers-cosy-gifts', 'Winter warmers', 'Heated gilets, slippers and hand warmers for UK winters.', 'linear-gradient(135deg,#7A3B12,#3A1606)', '#F8D6B5', 'STAY WARM'],
+			['new-year-sale', 'New Year Sale', 'Get organised, get fit, travel lighter. Extra 20% off 2+ items with BUNDLE20.', 'linear-gradient(135deg,#C89B4E,#8A6420)', '#1A1206', 'NEW YEAR'],
+			['clearance-sale', 'Clearance', 'Final stock at 30% off and more. When it is gone, it is gone.', 'linear-gradient(135deg,#6E1A28,#2B070E)', '#FFC2CB', 'CLEARANCE'],
+		];
+		foreach ($rails as $r) {
+			$ps = self::cat_products($r[0], 4);
+			if (count($ps) < 2) continue;
+			echo '<section class="rail"><a class="railhead" href="' . esc_url(self::term_url($r[0])) . '" style="background:' . esc_attr($r[3]) . '"><small style="color:' . esc_attr($r[4]) . '">' . esc_html($r[5]) . '</small><strong>' . wp_kses_post($r[1]) . '</strong><span>' . esc_html($r[2]) . '</span><em>Shop the collection →</em></a><div class="grid4">';
+			foreach ($ps as $p) echo self::card_html($p); // phpcs:ignore
+			echo '</div></section>';
+		}
+		?>
+<section class="trust"><div><b>Free UK delivery</b>Every order, no minimum</div><div><b>30-day returns</b>Free and easy</div><div><b>Gift-ready</b>Packed in Nottingham</div><div><b>Track &amp; chat</b>Live tracking and UK support</div></section>
+</div>
+<script>(function(){var t=document.querySelector('.gx-home .cd .t');if(!t)return;var end=+t.getAttribute('data-end')*1000;function u(){var d=Math.max(0,end-Date.now());var s=Math.floor(d/1000);var v={d:Math.floor(s/86400),h:Math.floor(s%86400/3600),m:Math.floor(s%3600/60),s:s%60};for(var k in v){var e=t.querySelector('[data-u='+k+']');if(e)e.textContent=String(v[k]).padStart(2,'0');}}u();setInterval(u,1000);})();</script>
+<?php
+		$html = '<style>' . self::home_css() . '</style>' . ob_get_clean();
+		set_transient('genz_home_html', $html, 30 * MINUTE_IN_SECONDS);
+		return $html;
+	}
+	static function home_css() {
+		return <<<'CSS'
+.gx{--ink:#1E1A24;--mut:#5E566A;--plum:#5B2A86;--plum2:#7B45B5;--gold2:#F1D9A7;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:var(--ink)}
+.gx *{box-sizing:border-box}.gx a{text-decoration:none!important}.gx .mut{color:var(--mut)}
+.gx .hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,500px),1fr));gap:30px;align-items:center;padding:18px 0 6px}
+.gx .chip{display:inline-block;background:#FFF6E2;border:1px solid rgba(201,163,91,.55);color:#8A5A12;font-size:12px;font-weight:800;letter-spacing:.16em;padding:8px 14px;border-radius:999px}
+.gx h1{font-family:'Bodoni Moda',Georgia,serif!important;font-size:clamp(42px,5.6vw,74px)!important;line-height:1!important;font-weight:600!important;margin:16px 0!important;color:var(--ink)!important}
+.gx h2{font-family:'Bodoni Moda',Georgia,serif!important;font-size:clamp(28px,3.6vw,42px)!important;font-weight:600!important;margin:0!important;color:var(--ink)!important}
+.gx .grad{background:linear-gradient(90deg,#5B2A86,#9B59D0,#B8862F);-webkit-background-clip:text;background-clip:text;color:transparent}
+.gx .lead{font-size:18px;line-height:1.6;color:var(--mut)!important;max-width:500px;margin:0 0 22px}
+.gx .btn{display:inline-flex;align-items:center;justify-content:center;padding:16px 26px;border-radius:14px;font-weight:800;transition:transform .2s,filter .2s;margin:0 6px 8px 0}
+.gx .btn:hover{transform:translateY(-2px);filter:brightness(1.06)}
+.gx .btn-p{background:linear-gradient(180deg,var(--plum2),var(--plum));color:#fff!important;box-shadow:0 14px 30px rgba(91,42,134,.3)}
+.gx .btn-o{background:#fff;border:1px solid rgba(91,42,134,.2);color:var(--ink)!important}
+.gx .proof{display:flex;flex-wrap:wrap;gap:20px;font-size:14px;color:var(--mut);margin-top:14px}.gx .proof b{color:var(--plum)}
+.gx .stage{position:relative;height:520px;perspective:1300px}
+.gx .glow{position:absolute;left:12%;right:12%;bottom:30px;height:170px;border-radius:50%;background:radial-gradient(closest-side,rgba(201,163,91,.35),transparent);filter:blur(8px)}
+.gx .pod{position:absolute;left:16%;right:16%;bottom:62px;height:220px;border-radius:50%;background:linear-gradient(180deg,#fff,#E9DEF5);box-shadow:inset 0 2px 0 #fff,0 30px 60px rgba(70,30,110,.2);transform:rotateX(60deg);animation:gzfl 6s ease-in-out infinite}
+@keyframes gzfl{0%,100%{transform:rotateX(60deg) translateY(0)}50%{transform:rotateX(60deg) translateY(-12px)}}
+.gx .card3{position:absolute;border-radius:24px;background:#fff;border:1px solid rgba(201,163,91,.45);box-shadow:0 30px 70px rgba(70,30,110,.18);overflow:hidden;transition:transform .5s cubic-bezier(.2,.8,.2,1),box-shadow .5s;display:block;color:var(--ink)!important}
+.gx .card3:hover{transform:perspective(900px) translateY(-10px) scale(1.03)!important;box-shadow:0 40px 90px rgba(70,30,110,.25)}
+.gx .card3 img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block}
+.gx .card3 .cap{padding:12px 14px}.gx .card3 .cap b{display:block;font-size:14px;line-height:1.3;max-height:2.6em;overflow:hidden}
+.gx .price{font-weight:800;color:var(--plum)}.gx .price del{color:#9A93A3;font-weight:500;font-size:.8em;margin-left:6px}
+.gx .seal{position:absolute;right:6%;top:24px;width:112px;height:112px;border-radius:50%;background:var(--gold2);color:#1A1206;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:800;box-shadow:0 20px 40px rgba(201,163,91,.35);transform:rotate(-10deg);z-index:3}
+.gx .seal span{font-size:30px;line-height:1}.gx .seal small{font-size:11px}
+.gx .cd{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:18px;border-radius:22px;padding:22px 28px;background:linear-gradient(90deg,#FFF6E2,#fff);border:1px solid rgba(201,163,91,.45);margin:14px 0}
+.gx .cd .t{display:flex;gap:10px}.gx .cd .t div{background:#fff;border:1px solid #E6DDF0;border-radius:12px;padding:10px 14px;text-align:center;min-width:64px}
+.gx .cd .t b{display:block;font-size:26px;color:var(--plum)}.gx .cd .t small{font-size:11px;color:var(--mut);font-weight:700}
+.gx .sales{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:16px;margin:16px 0}
+.gx .sale{position:relative;overflow:hidden;border-radius:22px;padding:26px;min-height:180px;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;box-shadow:0 20px 40px rgba(70,30,110,.12);transition:transform .4s}
+.gx .sale:hover{transform:perspective(900px) rotateX(4deg) rotateY(-6deg) translateY(-6px)}
+.gx .sale small{font-size:12px;font-weight:800;letter-spacing:.18em}.gx .sale strong{font-family:'Bodoni Moda',serif;font-size:30px;font-weight:600;line-height:1.1}
+.gx .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.gx .more{color:var(--plum)!important;font-weight:700}
+.gx .cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.gx .cat{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;background:#fff;border:1px solid rgba(91,42,134,.1);border-radius:18px;padding:12px 10px 14px;color:var(--ink)!important;transition:transform .35s,box-shadow .35s}
+.gx .cat:hover{transform:translateY(-4px);box-shadow:0 18px 40px rgba(70,30,110,.14);border-color:rgba(201,163,91,.55)}
+.gx .cat .ci{width:84px;height:84px;border-radius:50%;overflow:hidden;background:#F4EEF9;box-shadow:0 0 0 3px #fff,0 0 0 4px rgba(201,163,91,.5)}
+.gx .cat img{width:100%;height:100%;object-fit:cover}.gx .cat b{font-size:13px;line-height:1.25}.gx .cat small{font-size:11px;color:var(--mut)}
+.gx .rail{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,3fr);gap:16px;margin:30px 0}
+.gx .railhead{border-radius:22px;padding:26px;display:flex;flex-direction:column;justify-content:flex-end;gap:8px;color:#fff!important;min-height:260px;box-shadow:0 20px 40px rgba(70,30,110,.14)}
+.gx .railhead small{font-size:12px;font-weight:800;letter-spacing:.18em}.gx .railhead strong{font-family:'Bodoni Moda',serif;font-size:30px;font-weight:600;line-height:1.1}
+.gx .railhead span{opacity:.88;font-size:14px}.gx .railhead em{font-style:normal;font-weight:800;margin-top:6px}
+.gx .grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.gx .pc{border-radius:20px;padding:12px;background:#fff;border:1px solid rgba(91,42,134,.1);box-shadow:0 14px 32px rgba(70,30,110,.08);display:flex;flex-direction:column;gap:8px;transition:transform .5s cubic-bezier(.2,.8,.2,1),box-shadow .5s}
+.gx .pc:hover{transform:perspective(900px) rotateX(4deg) rotateY(-6deg) translateY(-8px);box-shadow:0 30px 60px rgba(70,30,110,.18),0 0 0 1px rgba(201,163,91,.5)}
+.gx .pc .im{position:relative;border-radius:14px;overflow:hidden;background:#F4EEF9;display:block}
+.gx .pc img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block;transition:transform .6s}.gx .pc:hover img{transform:scale(1.06)}
+.gx .off{position:absolute;top:10px;left:10px;background:var(--gold2);color:#1A1206;font-size:11px;font-weight:800;padding:5px 10px;border-radius:999px}
+.gx .pc .nm{font-weight:700;line-height:1.35;font-size:14px;color:var(--ink)!important;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.7em}
+.gx .st{color:#B8862F;font-size:12px}.gx .st span{color:var(--mut)}
+.gx .add{background:linear-gradient(180deg,var(--plum2),var(--plum));color:#fff!important;font-weight:800;font-size:12px;padding:10px 12px;border-radius:12px;white-space:nowrap}
+.gx .trust{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:14px;margin:20px 0 30px}
+.gx .trust div{border-radius:18px;padding:18px;background:#fff;border:1px solid rgba(91,42,134,.08);color:var(--mut)}.gx .trust b{color:var(--plum);display:block}
+@media(max-width:900px){.gx .rail{grid-template-columns:1fr}.gx .railhead{min-height:150px}.gx .grid4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){
+.gx .hero{gap:10px;padding-top:6px}.gx h1{font-size:40px!important}.gx .lead{font-size:16px}.gx .btn{padding:14px 18px}
+.gx .stage{height:380px}
+.gx .card3.c1{left:calc(50% - 100px)!important;top:0!important;width:200px!important}
+.gx .card3.c2{left:0!important;top:150px!important;width:130px!important}
+.gx .card3.c3{right:0!important;left:auto!important;top:170px!important;width:130px!important}
+.gx .card3 .cap{padding:8px 10px}.gx .card3 .cap b{font-size:12px}
+.gx .seal{width:78px;height:78px;right:0;top:0}.gx .seal span{font-size:22px}
+.gx .pod{left:6%;right:6%;height:150px;bottom:40px}
+.gx .cd{padding:16px;gap:12px}.gx .cd .t div{min-width:0;padding:8px 10px}.gx .cd .t b{font-size:20px}.gx .cd .btn{width:100%}
+.gx .sales{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.gx .sale{min-height:130px;padding:16px;border-radius:18px}.gx .sale strong{font-size:21px}.gx .sale small{font-size:10px}.gx .sale span{font-size:12px}
+.gx .cats{grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:110px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none}
+.gx .cats::-webkit-scrollbar{display:none}.gx .cat .ci{width:70px;height:70px}
+.gx .pc{padding:8px;border-radius:16px}.gx .pc .row{flex-direction:column;align-items:stretch}.gx .add{text-align:center}
+.gx .railhead strong{font-size:24px}
+}
+CSS;
+	}
+	static function clear_home_cache() { delete_transient('genz_home_html'); }
+	static function admin_skin() {
+		if (!current_user_can('manage_options')) wp_die('No access');
+		check_admin_referer('genz_hub_skin');
+		$s = ($_POST['skin'] ?? '') === 'luxe' ? 'luxe' : 'classic';
+		update_option('genz_skin', $s);
+		$home = (int) get_option('page_on_front');
+		$bk = get_option('genz_home_backup');
+		if ($home) {
+			if ($s === 'luxe' && !$bk) update_option('genz_home_backup', get_post_field('post_content', $home), false);
+			if ($s === 'luxe') {
+				$old = $bk ?: get_post_field('post_content', $home);
+				$keep = '';
+				$pos = strpos($old, '"genz-section genz-guides-home"');
+				if ($pos !== false) { $start = strrpos(substr($old, 0, $pos), '<!-- wp:group'); if ($start !== false) $keep = substr($old, $start); }
+				wp_update_post(['ID' => $home, 'post_content' => "<!-- wp:shortcode -->\n[genz_home]\n<!-- /wp:shortcode -->\n\n" . $keep]);
+			} elseif ($bk) {
+				wp_update_post(['ID' => $home, 'post_content' => $bk]);
+			}
+		}
+		self::clear_home_cache();
+		wp_safe_redirect(admin_url('admin.php?page=genz-hub&skin=' . $s));
+		exit;
+	}
+
 	/* ------------------------------------------------ theme preview (admin) */
 	static function preview_products($limit, $orderby = 'popularity') {
 		$args = ['status' => 'publish', 'limit' => $limit, 'stock_status' => 'instock', 'visibility' => 'catalog'];
@@ -1638,6 +1891,12 @@ if ($top_off) echo '<div class="seal"><small>UP TO</small><span>' . (int) $top_o
 		echo '<div><a href="' . esc_url(admin_url('admin.php?page=genz-subscribers')) . '" style="text-decoration:none;color:inherit"><strong>' . $subs . '</strong>Subscribers</a></div>';
 		echo '<div><a href="' . esc_url(admin_url('admin.php?page=genz-email')) . '" style="text-decoration:none;color:inherit"><strong style="color:' . ($ready ? '#0a7a2f' : '#b00020') . '">' . ($ready ? 'Inbox-ready' : 'Set up') . '</strong>Email delivery</a></div>';
 		echo '</div>';
+		$sk = self::skin();
+		echo '<div style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:16px 20px;margin:16px 0;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between"><div><h2 style="margin:0 0 4px">Website design</h2>Current: <strong>' . ($sk === 'luxe' ? '3D Luxe Light' : 'Classic Dark Purple') . '</strong>. Switching back restores your old homepage and colours (backup kept).</div><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+		wp_nonce_field('genz_hub_skin');
+		echo '<input type="hidden" name="action" value="genz_hub_skin"><input type="hidden" name="skin" value="' . ($sk === 'luxe' ? 'classic' : 'luxe') . '">';
+		submit_button($sk === 'luxe' ? 'Switch back to Classic Dark' : 'Switch to 3D Luxe Light', $sk === 'luxe' ? 'secondary' : 'primary', 'submit', false);
+		echo ' <a class="button" href="' . esc_url(home_url('/?genz_preview=luxe')) . '" target="_blank">Preview</a></form></div>';
 		// Quick add tracking.
 		$orders = wc_get_orders(['limit' => 30, 'orderby' => 'date', 'order' => 'DESC', 'type' => 'shop_order', 'status' => ['processing', 'on-hold', 'completed']]);
 		echo '<div style="background:#fff;border:1px solid #ddd;border-radius:8px;padding:16px 20px;margin:16px 0"><h2 style="margin-top:0">Add tracking &amp; notify customer (one click)</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
