@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.2.1
+ * Version: 1.3.0
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.2.1';
+	const V = '1.3.0';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -21,6 +21,7 @@ final class GenZ_Hub {
 		add_filter('cron_schedules', [__CLASS__, 'cron_schedules']);
 		add_action('init', [__CLASS__, 'on_init']);
 		add_action('template_redirect', [__CLASS__, 'handle_links'], 1);
+		add_action('template_redirect', [__CLASS__, 'preview_page'], 0);
 		add_action('rest_api_init', [__CLASS__, 'routes']);
 		// Smart product search.
 		add_action('save_post_product', function () { delete_transient('genz_search_index'); });
@@ -911,6 +912,170 @@ JS;
 		$url = add_query_arg('genz_ml', $tok, wc_get_page_permalink('myaccount'));
 		self::mail($email, 'Your GenZ Gadgets sign-in link', 'Sign in to your account', '<p>Hi,</p><p>Tap the button below to sign in and see your orders, tracking updates and messages. This link works once and expires in 20 minutes.</p>' . self::btn($url, 'Sign in to my account') . '<p style="font-size:12px;color:#777">If you did not ask for this, you can ignore this email.</p>');
 		return $generic;
+	}
+
+	/* ------------------------------------------------ theme preview (admin) */
+	static function preview_products($limit, $orderby = 'popularity') {
+		$args = ['status' => 'publish', 'limit' => $limit, 'stock_status' => 'instock', 'visibility' => 'catalog'];
+		if ($orderby === 'popularity') { $args['orderby'] = 'meta_value_num'; $args['meta_key'] = 'total_sales'; $args['order'] = 'DESC'; }
+		$out = [];
+		foreach (wc_get_products($args) as $p) {
+			if (!$p->get_image_id()) continue;
+			$reg = (float) $p->get_regular_price(); $now = (float) wc_get_price_to_display($p);
+			$out[] = [
+				'id' => $p->get_id(), 'n' => $p->get_name(), 'u' => get_permalink($p->get_id()),
+				'img' => wp_get_attachment_image_url($p->get_image_id(), 'woocommerce_single') ?: wp_get_attachment_image_url($p->get_image_id(), 'large'),
+				'now' => wc_price($now), 'was' => ($p->is_on_sale() && $reg > $now) ? wc_price($reg) : '',
+				'off' => ($p->is_on_sale() && $reg > $now) ? (int) round(100 - $now / $reg * 100) : 0,
+				'rt' => (float) $p->get_average_rating(), 'rc' => (int) $p->get_review_count(),
+				'cart' => $p->is_type('simple') ? add_query_arg('add-to-cart', $p->get_id(), home_url('/cart/')) : get_permalink($p->get_id()),
+			];
+		}
+		return $out;
+	}
+	static function preview_stars($r) { $r = (int) round($r); return $r ? str_repeat('★', $r) . str_repeat('☆', 5 - $r) : ''; }
+	static function preview_page() {
+		if (empty($_GET['genz_preview'])) return;
+		if (!current_user_can('manage_woocommerce')) { auth_redirect(); exit; }
+		nocache_headers();
+		header('X-Robots-Tag: noindex, nofollow');
+		$prods = self::preview_products(12);
+		$hero = array_slice($prods, 0, 3);
+		$grid = array_slice($prods, 0, 8);
+		$logo = self::logo_url();
+		$cat = function ($slug) { $t = get_term_by('slug', $slug, 'product_cat'); return $t ? get_term_link($t) : home_url('/shop/'); };
+		$navs = [];
+		foreach (get_terms(['taxonomy' => 'product_cat', 'parent' => 0, 'hide_empty' => true, 'orderby' => 'count', 'order' => 'DESC', 'number' => 7]) as $t) { if ($t->slug !== 'uncategorized') $navs[] = $t; }
+		global $wpdb;
+		$rev_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->comments} c JOIN {$wpdb->posts} p ON p.ID=c.comment_post_ID WHERE p.post_type='product' AND c.comment_approved='1' AND c.comment_type='review'");
+		$reviews = get_comments(['post_type' => 'product', 'status' => 'approve', 'type' => 'review', 'number' => 40, 'meta_query' => [['key' => 'rating', 'value' => 5]]]);
+		$picked = [];
+		foreach ($reviews as $c) {
+			$txt = trim(wp_strip_all_tags($c->comment_content));
+			if (mb_strlen($txt) < 40 || mb_strlen($txt) > 220) continue;
+			$picked[] = ['t' => $txt, 'n' => strtok($c->comment_author, ' '), 'p' => get_the_title($c->comment_post_ID), 'v' => (bool) get_comment_meta($c->comment_ID, 'verified', true)];
+			if (count($picked) >= 3) break;
+		}
+		$cart_count = function_exists('WC') && WC()->cart ? WC()->cart->get_cart_contents_count() : 0;
+		$end = strtotime('2026-12-01 00:00:00 Europe/London');
+		$sale_url = $cat('christmas-new-year-sale');
+		?><!doctype html><html lang="en-GB"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Preview · 3D Luxe Light · GenZ Gadgets Store</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<?php wp_head(); ?>
+<style>
+html,body{margin:0!important;padding:0;background:#FBF8F4!important}
+.gx{--ink:#1E1A24;--mut:#5E566A;--plum:#5B2A86;--plum2:#7B45B5;--gold:#C9A35B;--gold2:#F1D9A7;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:var(--ink);background:radial-gradient(60% 40% at 85% 0%,#EBDDFB 0%,#FBF8F4 55%) #FBF8F4;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+.gx *{box-sizing:border-box}.gx a{color:inherit;text-decoration:none}
+.gx .w{max-width:1320px;margin:0 auto;padding:0 24px}
+.gx .serif{font-family:'Bodoni Moda',Georgia,serif}
+.gx .bar{background:var(--gold2);color:#1A1206;font-size:13px;font-weight:800;letter-spacing:.05em;padding:10px 16px;display:flex;flex-wrap:wrap;justify-content:center;gap:24px}
+.gx .pv{position:fixed;left:16px;bottom:16px;z-index:99999;background:#1E1A24;color:#fff;font-size:12px;font-weight:700;padding:8px 12px;border-radius:999px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.gx header{display:flex;flex-wrap:wrap;align-items:center;gap:22px;padding:18px 0}
+.gx header img{height:52px;width:auto}
+.gx nav{display:flex;flex-wrap:wrap;gap:22px;font-size:14px;font-weight:600;flex:1 1 360px;justify-content:center}
+.gx nav a:hover{color:var(--plum)}
+.gx .srch{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid rgba(91,42,134,.18);border-radius:14px;padding:4px 6px 4px 14px;min-width:280px;box-shadow:0 8px 24px rgba(70,30,110,.08)}
+.gx .srch input{border:0!important;outline:none;background:transparent!important;font:inherit;color:var(--ink);width:100%;padding:8px 0!important;box-shadow:none!important}
+.gx .srch button{border:0;background:var(--plum);color:#fff;border-radius:10px;padding:9px 14px;font:inherit;font-weight:700;cursor:pointer}
+.gx .bag{background:var(--plum);color:#fff!important;border-radius:12px;padding:10px 14px;font-weight:800;font-size:14px}
+.gx .hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,520px),1fr));gap:30px;align-items:center;padding:24px 0 10px}
+.gx .chip{display:inline-block;background:#FFF6E2;border:1px solid rgba(201,163,91,.55);color:#8A5A12;font-size:12px;font-weight:800;letter-spacing:.16em;padding:8px 14px;border-radius:999px}
+.gx h1{font-family:'Bodoni Moda',serif;font-size:clamp(44px,6vw,78px);line-height:.98;font-weight:600;margin:18px 0}
+.gx .grad{background:linear-gradient(90deg,#5B2A86,#9B59D0,#B8862F);-webkit-background-clip:text;background-clip:text;color:transparent}
+.gx .lead{font-size:18px;line-height:1.6;color:var(--mut);max-width:500px;margin:0 0 22px}
+.gx .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:16px 28px;border-radius:14px;font-weight:800;transition:transform .2s,box-shadow .2s,filter .2s}
+.gx .btn:hover{transform:translateY(-2px);filter:brightness(1.06)}
+.gx .btn-p{background:linear-gradient(180deg,var(--plum2),var(--plum));color:#fff!important;box-shadow:0 14px 30px rgba(91,42,134,.3)}
+.gx .btn-o{background:#fff;border:1px solid rgba(91,42,134,.2);color:var(--ink)}
+.gx .proof{display:flex;flex-wrap:wrap;gap:22px;font-size:14px;color:var(--mut);margin-top:18px}.gx .proof b{color:var(--plum)}
+.gx .stage{position:relative;height:540px;perspective:1300px}
+.gx .glow{position:absolute;left:12%;right:12%;bottom:30px;height:170px;border-radius:50%;background:radial-gradient(closest-side,rgba(201,163,91,.35),transparent);filter:blur(8px)}
+.gx .pod{position:absolute;left:16%;right:16%;bottom:62px;height:220px;border-radius:50%;background:linear-gradient(180deg,#fff,#E9DEF5);box-shadow:inset 0 2px 0 #fff,0 30px 60px rgba(70,30,110,.2);transform:rotateX(60deg);animation:fl 6s ease-in-out infinite}
+@keyframes fl{0%,100%{transform:rotateX(60deg) translateY(0)}50%{transform:rotateX(60deg) translateY(-12px)}}
+.gx .card3{position:absolute;border-radius:24px;background:#fff;border:1px solid rgba(201,163,91,.45);box-shadow:0 30px 70px rgba(70,30,110,.18);overflow:hidden;transition:transform .5s cubic-bezier(.2,.8,.2,1),box-shadow .5s;display:block}
+.gx .card3:hover{transform:perspective(900px) rotateY(0) rotateX(0) translateY(-10px) scale(1.03)!important;box-shadow:0 40px 90px rgba(70,30,110,.25)}
+.gx .card3 img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block}
+.gx .card3 .cap{padding:12px 14px}.gx .card3 .cap b{display:block;font-size:14px;line-height:1.3;max-height:2.6em;overflow:hidden}
+.gx .price{font-weight:800;color:var(--plum)}.gx .price del{color:#9A93A3;font-weight:500;font-size:.8em;margin-left:6px}
+.gx .seal{position:absolute;right:6%;top:24px;width:112px;height:112px;border-radius:50%;background:var(--gold2);color:#1A1206;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:800;box-shadow:0 20px 40px rgba(201,163,91,.35);transform:rotate(-10deg);z-index:3}
+.gx .seal span{font-size:30px;line-height:1}
+.gx .cd{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:18px;border-radius:22px;padding:22px 28px;background:linear-gradient(90deg,#FFF6E2,#fff);border:1px solid rgba(201,163,91,.45);margin:14px 0}
+.gx .cd .t{display:flex;gap:10px}.gx .cd .t div{background:#fff;border:1px solid #E6DDF0;border-radius:12px;padding:10px 14px;text-align:center;min-width:64px}
+.gx .cd .t b{display:block;font-size:26px;color:var(--plum)}.gx .cd .t small{font-size:11px;color:var(--mut);font-weight:700}
+.gx .sales{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px;margin:16px 0}
+.gx .sale{position:relative;overflow:hidden;border-radius:22px;padding:28px;min-height:190px;display:flex;flex-direction:column;justify-content:flex-end;gap:6px;box-shadow:0 20px 40px rgba(70,30,110,.12);transition:transform .4s}
+.gx .sale:hover{transform:perspective(900px) rotateX(4deg) rotateY(-6deg) translateY(-6px)}
+.gx .sale small{font-size:12px;font-weight:800;letter-spacing:.18em}.gx .sale strong{font-family:'Bodoni Moda',serif;font-size:32px;font-weight:600}
+.gx h2{font-family:'Bodoni Moda',serif;font-size:clamp(32px,4vw,44px);font-weight:600;margin:0}
+.gx .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:18px}
+.gx .pc{border-radius:22px;padding:14px;background:#fff;border:1px solid rgba(91,42,134,.1);box-shadow:0 16px 36px rgba(70,30,110,.08);display:flex;flex-direction:column;gap:10px;transition:transform .5s cubic-bezier(.2,.8,.2,1),box-shadow .5s}
+.gx .pc:hover{transform:perspective(900px) rotateX(4deg) rotateY(-6deg) translateY(-8px);box-shadow:0 30px 60px rgba(70,30,110,.18),0 0 0 1px rgba(201,163,91,.5)}
+.gx .pc .im{position:relative;border-radius:16px;overflow:hidden;background:#F4EEF9}
+.gx .pc img{width:100%;aspect-ratio:1/1;object-fit:cover;display:block;transition:transform .6s}.gx .pc:hover img{transform:scale(1.06)}
+.gx .off{position:absolute;top:10px;left:10px;background:var(--gold2);color:#1A1206;font-size:11px;font-weight:800;padding:5px 10px;border-radius:999px}
+.gx .pc .nm{font-weight:700;line-height:1.35;min-height:2.7em}
+.gx .st{color:#B8862F;font-size:13px}.gx .st span{color:var(--mut)}
+.gx .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.gx .add{background:linear-gradient(180deg,var(--plum2),var(--plum));color:#fff!important;font-weight:800;font-size:13px;padding:11px 14px;border-radius:12px;white-space:nowrap}
+.gx .revs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px;margin:30px 0}
+.gx .rv{border-radius:22px;padding:24px;background:#fff;border:1px solid rgba(91,42,134,.1)}
+.gx .rv p{font-family:'Bodoni Moda',serif;font-size:18px;line-height:1.45;margin:10px 0}
+.gx .trust{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:14px;margin:10px 0 40px}
+.gx .trust div{border-radius:18px;padding:18px;background:#fff;border:1px solid rgba(91,42,134,.08)}.gx .trust b{color:var(--plum);display:block}
+.gx footer{border-top:1px solid #E8E0EF;padding:28px 24px;text-align:center;color:#6E6779;font-size:13px}
+@media(max-width:760px){.gx .stage{height:420px}.gx .card3.c2,.gx .card3.c3{width:150px!important}.gx .srch{min-width:0;flex:1 1 100%}.gx nav{order:3}}
+</style></head><body class="genz-preview"><div class="gx">
+<div class="pv">Preview only · visible to you</div>
+<div class="bar"><span>BLACK FRIDAY · UP TO 40% OFF</span><span>FREE UK DELIVERY ON EVERY ORDER</span><span>EXTRA 20% OFF 2+ ITEMS · BUNDLE20</span></div>
+<div class="w">
+<header>
+<a href="<?php echo esc_url(home_url('/')); ?>"><?php if ($logo) : ?><img src="<?php echo esc_url($logo); ?>" alt="GenZ Gadgets Store"><?php else : ?><b class="serif" style="font-size:28px">GenZ Gadgets</b><?php endif; ?></a>
+<nav aria-label="Main"><?php foreach ($navs as $t) echo '<a href="' . esc_url(get_term_link($t)) . '">' . esc_html(html_entity_decode($t->name)) . '</a>'; ?><a href="<?php echo esc_url($sale_url); ?>" style="color:#5B2A86">Sale</a></nav>
+<form class="srch" role="search" action="<?php echo esc_url(home_url('/')); ?>"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5E566A" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input type="search" name="s" aria-label="Search" placeholder="Try “gifts for dad”"><input type="hidden" name="post_type" value="product"><button type="submit">Search</button></form>
+<a class="bag" href="<?php echo esc_url(wc_get_cart_url()); ?>">Bag (<?php echo (int) $cart_count; ?>)</a>
+</header>
+<section class="hero">
+<div>
+<span class="chip">THE BLACK FRIDAY EDIT</span>
+<h1>Gifts that <span class="grad">wow</span><br>on Christmas<br>morning.</h1>
+<p class="lead">Hand-picked tech and clever gadgets, gift-ready from Nottingham and delivered free across the UK.</p>
+<a class="btn btn-p" href="<?php echo esc_url($sale_url); ?>">Shop the sale</a> <a class="btn btn-o" href="<?php echo esc_url($cat('christmas-gifts')); ?>">Find a gift</a>
+<div class="proof"><span><b><?php echo esc_html(number_format($rev_count)); ?>+</b> customer reviews</span><span><b>Free</b> UK delivery</span><span><b>30-day</b> returns</span></div>
+</div>
+<div class="stage">
+<div class="glow"></div><div class="pod"></div>
+<?php $pos = [['c1', 'left:28%;top:20px;width:290px;z-index:2;transform:perspective(900px) rotateY(-12deg) rotateX(5deg)'], ['c2', 'left:2%;top:190px;width:200px;transform:perspective(900px) rotateY(16deg) rotateX(4deg)'], ['c3', 'right:0;top:210px;width:200px;transform:perspective(900px) rotateY(-16deg) rotateX(4deg)']];
+foreach ($hero as $i => $p) { if (!isset($pos[$i])) break; echo '<a class="card3 ' . $pos[$i][0] . '" href="' . esc_url($p['u']) . '" style="' . esc_attr($pos[$i][1]) . '"><img src="' . esc_url($p['img']) . '" alt="' . esc_attr($p['n']) . '"><div class="cap"><b>' . esc_html($p['n']) . '</b><span class="price">' . wp_kses_post($p['now']) . ($p['was'] ? '<del>' . wp_kses_post($p['was']) . '</del>' : '') . '</span></div></a>'; }
+$top_off = 0; foreach ($prods as $p) $top_off = max($top_off, $p['off']);
+if ($top_off) echo '<div class="seal"><small>UP TO</small><span>' . (int) $top_off . '%</span><small>OFF</small></div>'; ?>
+</div>
+</section>
+<section class="cd" aria-label="Countdown"><div><b style="font-size:18px">Black Friday prices end Cyber Monday</b><div style="color:#5E566A;font-size:14px">Order today, dispatched from Nottingham</div></div>
+<div class="t" data-end="<?php echo (int) $end; ?>"><div><b data-u="d">0</b><small>DAYS</small></div><div><b data-u="h">0</b><small>HRS</small></div><div><b data-u="m">0</b><small>MINS</small></div><div><b data-u="s">0</b><small>SECS</small></div></div>
+<a class="btn btn-p" href="<?php echo esc_url($sale_url); ?>">Grab the deals</a></section>
+<section class="sales" aria-label="Sales">
+<a class="sale" href="<?php echo esc_url($sale_url); ?>" style="background:linear-gradient(150deg,#2A1840,#120A1E);color:#fff"><small style="color:#F1D9A7">BLACK FRIDAY</small><strong>Up to <?php echo (int) max(30, $top_off); ?>% off</strong><span style="color:#D9CDE8">Shop now →</span></a>
+<a class="sale" href="<?php echo esc_url($cat('christmas-gifts')); ?>" style="background:linear-gradient(150deg,#1E4A36,#0B2318);color:#F2FAF5"><small style="color:#BFE7D0">CHRISTMAS SALE</small><strong>Gifts from £5</strong><span style="color:#CFE6DA">Stocking fillers →</span></a>
+<a class="sale" href="<?php echo esc_url(home_url('/shop/')); ?>" style="background:linear-gradient(150deg,#F6E3B8,#C89B4E);color:#1A1206"><small>NEW YEAR SALE</small><strong>20% off 2+ items</strong><span style="font-weight:700">Code BUNDLE20 →</span></a>
+<a class="sale" href="<?php echo esc_url($sale_url); ?>" style="background:linear-gradient(150deg,#6E1A28,#2B070E);color:#FFEFF1"><small style="color:#FFC2CB">CLEARANCE</small><strong>Final stock</strong><span style="color:#F4C9CF">When it's gone, it's gone →</span></a>
+</section>
+<section style="margin:34px 0">
+<div class="row" style="margin-bottom:20px;align-items:end"><h2>Most wanted this week</h2><a href="<?php echo esc_url(home_url('/shop/')); ?>" style="color:#5B2A86;font-weight:700">Shop all →</a></div>
+<div class="grid"><?php foreach ($grid as $p) { ?>
+<article class="pc"><a class="im" href="<?php echo esc_url($p['u']); ?>"><img src="<?php echo esc_url($p['img']); ?>" alt="<?php echo esc_attr($p['n']); ?>" loading="lazy"><?php if ($p['off']) echo '<span class="off">−' . (int) $p['off'] . '%</span>'; ?></a>
+<a class="nm" href="<?php echo esc_url($p['u']); ?>"><?php echo esc_html($p['n']); ?></a>
+<?php if ($p['rt']) echo '<div class="st">' . esc_html(self::preview_stars($p['rt'])) . ' <span>(' . (int) $p['rc'] . ')</span></div>'; ?>
+<div class="row"><span class="price"><?php echo wp_kses_post($p['now']); if ($p['was']) echo '<del>' . wp_kses_post($p['was']) . '</del>'; ?></span><a class="add" href="<?php echo esc_url($p['cart']); ?>">Add to bag</a></div></article>
+<?php } ?></div></section>
+<?php if ($picked) { ?><section class="revs"><?php foreach ($picked as $r) { ?><div class="rv"><div class="st">★★★★★</div><p>“<?php echo esc_html($r['t']); ?>”</p><div style="color:#5E566A;font-size:13px"><?php echo esc_html($r['n']); ?><?php echo $r['v'] ? ', verified buyer' : ''; ?> · <?php echo esc_html($r['p']); ?></div></div><?php } ?></section><?php } ?>
+<section class="trust"><div><b>Free UK delivery</b>Every order, no minimum</div><div><b>30-day returns</b>Free and easy</div><div><b>Gift-ready</b>Packed in Nottingham</div><div><b>Track &amp; chat</b>Live tracking and UK support</div></section>
+</div>
+<footer>GenZ Gadgets Store · Noel Street, Nottingham · genzgadget.uk</footer>
+</div>
+<script>(function(){var t=document.querySelector('.gx .cd .t');if(!t)return;var end=+t.getAttribute('data-end')*1000;function u(){var d=Math.max(0,end-Date.now());var s=Math.floor(d/1000);var v={d:Math.floor(s/86400),h:Math.floor(s%86400/3600),m:Math.floor(s%3600/60),s:s%60};for(var k in v){var e=t.querySelector('[data-u='+k+']');if(e)e.textContent=String(v[k]).padStart(2,'0');}}u();setInterval(u,1000);})();</script>
+<?php wp_footer(); ?>
+</body></html><?php
+		exit;
 	}
 
 	static function handle_links() {
