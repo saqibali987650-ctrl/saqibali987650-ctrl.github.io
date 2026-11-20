@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.3.3
+ * Version: 1.3.4
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.3.3';
+	const V = '1.3.4';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -950,11 +950,14 @@ JS;
 		foreach (['christmas-gifts', 'gifts-for-him', 'gifts-for-her', 'tech-gadgets', 'winter-warmers-cosy-gifts', 'health-beauty'] as $sl) { $t = get_term_by('slug', $sl, 'product_cat'); if ($t) $navs[] = $t; }
 		global $wpdb;
 		$rev_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->comments} c JOIN {$wpdb->posts} p ON p.ID=c.comment_post_ID WHERE p.post_type='product' AND c.comment_approved='1' AND c.comment_type='review'");
-		$reviews = get_comments(['post_type' => 'product', 'status' => 'approve', 'type' => 'review', 'number' => 40, 'meta_query' => [['key' => 'rating', 'value' => 5]]]);
+		$reviews = get_comments(['post_type' => 'product', 'status' => 'approve', 'type' => 'review', 'number' => 200, 'meta_query' => [['key' => 'rating', 'value' => 5]]]);
 		$picked = [];
 		foreach ($reviews as $c) {
 			$txt = trim(wp_strip_all_tags($c->comment_content));
 			if (mb_strlen($txt) < 40 || mb_strlen($txt) > 220) continue;
+			$ptitle = get_the_title($c->comment_post_ID);
+			similar_text(strtolower($txt), strtolower($ptitle), $pct);
+			if ($pct > 45 || stripos($txt, mb_substr($ptitle, 0, 18)) !== false) continue;
 			$picked[] = ['t' => $txt, 'n' => strtok($c->comment_author, ' '), 'p' => get_the_title($c->comment_post_ID), 'v' => (bool) get_comment_meta($c->comment_ID, 'verified', true)];
 			if (count($picked) >= 3) break;
 		}
