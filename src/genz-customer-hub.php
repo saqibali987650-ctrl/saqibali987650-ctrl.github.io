@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.3.2
+ * Version: 1.3.3
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.3.2';
+	const V = '1.3.3';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -1029,6 +1029,7 @@ html,body{margin:0!important;padding:0;background:#FBF8F4!important}
 .gx footer{border-top:1px solid #E8E0EF;padding:28px 24px;text-align:center;color:#6E6779;font-size:13px}
 @media(max-width:760px){
 .gx .w{padding:0 14px}
+.gx .bar{font-size:11px;padding:8px 10px}.gx .bar span:not(:first-child){display:none!important}
 .gx header{display:grid;grid-template-columns:1fr auto;gap:12px;padding:12px 0}
 .gx header img{height:40px}
 .gx .bag{grid-column:2;grid-row:1;justify-self:end}
