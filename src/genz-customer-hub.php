@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.4.2
+ * Version: 1.4.3
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.4.2';
+	const V = '1.4.3';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -34,6 +34,8 @@ final class GenZ_Hub {
 		add_shortcode('genz_track_order', [__CLASS__, 'sc_track']);
 		add_shortcode('genz_subscribe', [__CLASS__, 'sc_subscribe']);
 		add_shortcode('genz_home', [__CLASS__, 'sc_home']);
+		add_filter('render_block', [__CLASS__, 'cat_banner_block'], 10, 2);
+		add_action('woocommerce_archive_description', [__CLASS__, 'cat_banner_classic'], 5);
 		add_action('wp_head', [__CLASS__, 'skin_head'], 9999);
 		add_action('admin_post_genz_hub_skin', [__CLASS__, 'admin_skin']);
 		add_action('save_post_product', [__CLASS__, 'clear_home_cache']);
@@ -996,6 +998,31 @@ CSS;
 		$h .= '<div class="row"><span class="price">' . wp_kses_post($p['now']) . ($p['was'] ? '<del>' . wp_kses_post($p['was']) . '</del>' : '') . '</span><a class="add" href="' . esc_url($p['cart']) . '" rel="nofollow">Add to bag</a></div></article>';
 		return $h;
 	}
+	static function cat_banners() {
+		return [
+			'christmas-gifts' => ['Christmas 2026', 'The Christmas Gift Shop', 'Gifts they will actually use. Stocking fillers from £5, free UK delivery and 30-day returns.', '#0F3B2E', '#1D6B4F'],
+			'christmas-new-year-sale' => ['Festive sale', 'Christmas & New Year Sale', 'Festive prices on gadgets and gifts, delivered free across the UK.', '#5B2A86', '#0F3B2E'],
+			'stocking-fillers' => ['Under £10', 'Stocking Fillers', 'Small, clever gifts that fit any stocking. Free UK delivery.', '#7A1F2B', '#B23A48'],
+			'black-friday-deals' => ['Black Friday', 'Black Friday Deals', 'Our biggest savings of the year, for a limited time.', '#1E1A24', '#5B2A86'],
+			'clearance-sale' => ['Clearance', 'Clearance Sale', '30% off and more while stock lasts. When it is gone, it is gone.', '#7A1F2B', '#C9A35B'],
+			'new-year-sale' => ['New Year 2027', 'New Year, New You Sale', 'Get organised, get fit, sleep better. Fresh-start deals for January.', '#C9A35B', '#5B2A86'],
+		];
+	}
+	static function cat_banner_html() {
+		if (!function_exists('is_product_category') || !is_product_category()) return '';
+		$t = get_queried_object(); $m = self::cat_banners();
+		if (!$t || empty($m[$t->slug])) return '';
+		list($k, $h, $d, $c1, $c2) = $m[$t->slug];
+		return '<div class="genz-cat-hero" style="background:linear-gradient(120deg,' . $c1 . ',' . $c2 . ')"><span class="gch-k">' . esc_html($k) . '</span><div class="gch-h">' . esc_html($h) . '</div><p>' . esc_html($d) . '</p><span class="gch-s">Free UK delivery · 30-day returns · 20% off 2+ with BUNDLE20</span></div>'
+			. '<style>.genz-cat-hero{border-radius:24px;padding:34px 38px;margin:6px 0 22px;color:#fff;box-shadow:0 24px 50px -28px rgba(30,26,36,.55);position:relative;overflow:hidden}.genz-cat-hero:after{content:"";position:absolute;right:-60px;top:-60px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(241,217,167,.35),transparent 70%)}.genz-cat-hero .gch-k{font:700 12px/1 "Plus Jakarta Sans",sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#F1D9A7}.genz-cat-hero .gch-h{font-family:"Bodoni Moda",serif;font-size:clamp(28px,4vw,44px);line-height:1.1;margin:10px 0 8px}.genz-cat-hero p{margin:0 0 12px;max-width:620px;opacity:.92;color:#fff!important}.genz-cat-hero .gch-s{font-size:13px;opacity:.85}@media(max-width:640px){.genz-cat-hero{padding:24px 22px}}</style>';
+	}
+	static function cat_banner_block($html, $block) {
+		static $done = false;
+		if ($done || ($block['blockName'] ?? '') !== 'core/term-description') return $html;
+		$b = self::cat_banner_html(); if (!$b) return $html;
+		$done = true; return $b . $html;
+	}
+	static function cat_banner_classic() { if (!wp_is_block_theme()) echo self::cat_banner_html(); }
 	static function term_url($slug) { $t = get_term_by('slug', $slug, 'product_cat'); return $t && !is_wp_error(get_term_link($t)) ? get_term_link($t) : home_url('/shop/'); }
 	static function sc_home() {
 		$t0 = microtime(true);
