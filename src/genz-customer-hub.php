@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.7.2
+ * Version: 1.7.3
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.7.2';
+	const V = '1.7.3';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -1009,6 +1009,7 @@ html body ul.wc-block-product-template .genz-card-btns a.genz-buy-now.genz-buy-n
 html body ul.wc-block-product-template .wc-block-components-product-image{overflow:hidden!important;border-radius:14px!important;background:#fff}
 html body ul.wc-block-product-template .wc-block-components-product-image img{transform:scale(1.25);transform-origin:50% 64%;transition:transform .6s cubic-bezier(.2,.8,.2,1);border-radius:0!important}
 html body ul.wc-block-product-template li:hover .wc-block-components-product-image img{transform:scale(1.31)}
+html body ul.wc-block-product-template .wc-block-components-product-image img[src*="genz-poster"],html body ul.wc-block-product-template .wc-block-components-product-image img[srcset*="genz-poster"]{transform:none!important}html body ul.wc-block-product-template li:hover .wc-block-components-product-image img[src*="genz-poster"]{transform:scale(1.04)!important}
 html body ul.wc-block-product-template .wc-block-components-product-sale-badge{z-index:2}
 .gz-more-wrap{display:flex;flex-direction:column;align-items:center;gap:10px;margin:30px 0 10px}
 .gz-more{font:800 15px/1 'Plus Jakarta Sans',sans-serif;padding:16px 38px;border-radius:999px;border:0;cursor:pointer;color:#fff;background:linear-gradient(180deg,#7B45B5,#5B2A86);box-shadow:0 14px 30px rgba(91,42,134,.3);transition:transform .2s,filter .2s}
@@ -1344,7 +1345,7 @@ var c=h.querySelector('.hero .stage');if(c&&matchMedia('(pointer:fine)').matches
 .gx p,.gx .lead,.gx span,.gx a{font-weight:inherit}.gx{font-weight:500}
 @media(max-width:760px){.gx .cartic{flex-basis:38px;height:38px}.gx .buy{height:38px;font-size:12px}.gx .sale>strong{font-size:19px!important;white-space:normal}.gx .sale{padding-top:52%!important}.gx .fan{width:70%!important;height:42%!important}}
 
-.gx .pc .im{background:#fff}.gx .pc img{transform:scale(1.25);transform-origin:50% 64%}.gx .pc:hover img{transform:scale(1.31)!important}
+.gx .pc .im{background:#fff}.gx .pc img{transform:scale(1.25);transform-origin:50% 64%}.gx .pc img[src*="genz-poster"]{transform:none!important}.gx .card3 img[src*="genz-poster"]{transform:none!important}.gx .pc:hover img{transform:scale(1.31)!important}
 .gx .card3 img{transform:scale(1.2)}.gx .card3{overflow:hidden}
 .gx .ti img,.gx .fan img,.gx .mos img,.gch-fan img,.gx .cat img{object-fit:cover;object-position:50% 52%}
 .gx .ti{overflow:hidden}.gx .ti img{transform:none}
