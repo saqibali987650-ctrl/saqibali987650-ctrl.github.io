@@ -926,7 +926,7 @@ JS;
 				'id' => $p->get_id(), 'n' => $p->get_name(), 'u' => get_permalink($p->get_id()),
 				'img' => wp_get_attachment_image_url($p->get_image_id(), 'woocommerce_single') ?: wp_get_attachment_image_url($p->get_image_id(), 'large'),
 				'now' => wc_price($now), 'was' => ($p->is_on_sale() && $reg > $now) ? wc_price($reg) : '',
-				'off' => ($p->is_on_sale() && $reg > $now) ? (int) round(100 - $now / $reg * 100) : 0,
+				'num' => $now, 'off' => ($p->is_on_sale() && $reg > $now) ? (int) round(100 - $now / $reg * 100) : 0,
 				'rt' => (float) $p->get_average_rating(), 'rc' => (int) $p->get_review_count(),
 				'cart' => $p->is_type('simple') ? add_query_arg('add-to-cart', $p->get_id(), home_url('/cart/')) : get_permalink($p->get_id()),
 			];
@@ -941,7 +941,7 @@ JS;
 		header('X-Robots-Tag: noindex, nofollow');
 		$prods = self::preview_products(12);
 		$hero = [];
-		foreach (self::preview_products(40) as $p) { if ((float) wp_strip_all_tags(html_entity_decode($p['now'])) && preg_replace('/[^0-9.]/', '', wp_strip_all_tags(html_entity_decode($p['now']))) >= 25) $hero[] = $p; if (count($hero) >= 3) break; }
+		foreach (self::preview_products(40) as $p) { if ($p['num'] >= 25) $hero[] = $p; if (count($hero) >= 3) break; }
 		if (count($hero) < 3) $hero = array_slice($prods, 0, 3);
 		$grid = array_slice($prods, 0, 8);
 		$logo = self::logo_url();
