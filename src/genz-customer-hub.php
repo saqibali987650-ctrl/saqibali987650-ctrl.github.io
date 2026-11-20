@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.4.6
+ * Version: 1.5.0
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.4.6';
+	const V = '1.5.0';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -996,6 +996,11 @@ CSS;
 		}
 		return $out;
 	}
+	static function fan_html($ps, $cls = 'fan') {
+		$h = '<span class="' . $cls . '" aria-hidden="true">';
+		foreach (array_slice($ps, 0, 3) as $i => $p) $h .= '<img class="f' . $i . '" src="' . esc_url($p['img']) . '" alt="" loading="lazy">';
+		return $h . '</span>';
+	}
 	static function card_html($p) {
 		$h = '<article class="pc"><a class="im" href="' . esc_url($p['u']) . '"><img src="' . esc_url($p['img']) . '" alt="' . esc_attr($p['n']) . '" loading="lazy">' . ($p['off'] ? '<span class="off">−' . (int) $p['off'] . '%</span>' : '') . '</a>';
 		$h .= '<a class="nm" href="' . esc_url($p['u']) . '">' . esc_html($p['n']) . '</a>';
@@ -1018,8 +1023,10 @@ CSS;
 		$t = get_queried_object(); $m = self::cat_banners();
 		if (!$t || empty($m[$t->slug])) return '';
 		list($k, $h, $d, $c1, $c2) = $m[$t->slug];
-		return '<div class="genz-cat-hero" style="background:linear-gradient(120deg,' . $c1 . ',' . $c2 . ')"><span class="gch-k">' . esc_html($k) . '</span><div class="gch-h">' . esc_html($h) . '</div><p>' . esc_html($d) . '</p><span class="gch-s">Free UK delivery · 30-day returns · 20% off 2+ with BUNDLE20</span></div>'
-			. '<style>.wp-block-term-description:has(.genz-cat-hero){max-width:none!important;margin-left:0!important;margin-right:0!important}.genz-cat-hero{max-width:none!important;width:100%;box-sizing:border-box;border-radius:24px;padding:34px 38px;margin:6px 0 22px;color:#fff;box-shadow:0 24px 50px -28px rgba(30,26,36,.55);position:relative;overflow:hidden}.genz-cat-hero:after{content:"";position:absolute;right:-60px;top:-60px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(241,217,167,.35),transparent 70%)}.genz-cat-hero .gch-k{font:700 12px/1 "Plus Jakarta Sans",sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#F1D9A7}.genz-cat-hero .gch-h{font-family:"Bodoni Moda",serif;font-size:clamp(28px,4vw,44px);line-height:1.1;margin:10px 0 8px}.genz-cat-hero p{margin:0 0 12px;max-width:620px;opacity:.92;color:#fff!important}.genz-cat-hero .gch-s{font-size:13px;opacity:.85}@media(max-width:640px){.genz-cat-hero{padding:24px 22px}}</style>';
+		$ps = self::cat_products($t->slug, 3);
+		$bg = $ps ? ', url(' . esc_url($ps[0]['big'] ?: $ps[0]['img']) . ') right center/cover' : '';
+		return '<div class="genz-cat-hero" style="background:linear-gradient(100deg,' . $c1 . ' 40%,' . $c2 . 'E0 65%,' . $c2 . '80)' . $bg . '">' . self::fan_html($ps, 'gch-fan') . '<span class="gch-k">' . esc_html($k) . '</span><div class="gch-h">' . esc_html($h) . '</div><p>' . esc_html($d) . '</p><span class="gch-s">Free UK delivery · 30-day returns · 20% off 2+ with BUNDLE20</span></div>'
+			. '<style>.wp-block-term-description:has(.genz-cat-hero){max-width:none!important;margin-left:0!important;margin-right:0!important}.genz-cat-hero{max-width:none!important;width:100%;box-sizing:border-box;border-radius:24px;padding:34px 38px;margin:6px 0 22px;color:#fff;box-shadow:0 24px 50px -28px rgba(30,26,36,.55);position:relative;overflow:hidden}.genz-cat-hero:after{content:"";position:absolute;right:-60px;top:-60px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(241,217,167,.35),transparent 70%)}.genz-cat-hero .gch-k{font:700 12px/1 "Plus Jakarta Sans",sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#F1D9A7}.genz-cat-hero .gch-h{font-family:"Bodoni Moda",serif;font-size:clamp(28px,4vw,44px);line-height:1.1;margin:10px 0 8px}.genz-cat-hero p{margin:0 0 12px;max-width:620px;opacity:.92;color:#fff!important}.genz-cat-hero .gch-s{font-size:13px;opacity:.85}.genz-cat-hero>*:not(.gch-fan){position:relative;z-index:2}.genz-cat-hero{min-height:230px}.gch-fan{position:absolute;right:30px;top:18px;bottom:18px;width:38%;z-index:1}.gch-fan img{position:absolute;height:82%;aspect-ratio:1;object-fit:cover;border-radius:18px;border:3px solid rgba(255,255,255,.92);box-shadow:0 20px 36px rgba(0,0,0,.35);transition:transform .6s cubic-bezier(.2,.8,.2,1)}.gch-fan .f0{right:24%;top:0;z-index:3;transform:rotate(-4deg)}.gch-fan .f1{right:52%;top:14%;height:70%;transform:rotate(-12deg)}.gch-fan .f2{right:0;top:18%;height:70%;transform:rotate(11deg)}.genz-cat-hero:hover .gch-fan .f0{transform:rotate(0) translateY(-6px) scale(1.04)}@media(max-width:640px){.genz-cat-hero{padding:24px 22px;min-height:0}.gch-fan{display:none}}</style>';
 	}
 	static function cat_seo() {
 		return [
@@ -1075,13 +1082,22 @@ if ($top_off) echo '<div class="seal"><small>UP TO</small><span>' . (int) $top_o
 <section class="cd" aria-label="Countdown"><div><b style="font-size:18px">Black Friday prices end Cyber Monday</b><div class="mut" style="font-size:14px">Order today, dispatched from Nottingham</div></div>
 <div class="t" data-end="<?php echo (int) $end; ?>"><div><b data-u="d">--</b><small>DAYS</small></div><div><b data-u="h">--</b><small>HRS</small></div><div><b data-u="m">--</b><small>MINS</small></div><div><b data-u="s">--</b><small>SECS</small></div></div>
 <a class="btn btn-p" href="<?php echo esc_url(self::term_url('black-friday-deals')); ?>">Grab the deals</a></section>
-<section class="sales" aria-label="Sales">
-<a class="sale" href="<?php echo esc_url(self::term_url('black-friday-deals')); ?>" style="background:linear-gradient(150deg,#2A1840,#120A1E);color:#fff"><small style="color:#F1D9A7">BLACK FRIDAY</small><strong>Up to <?php echo (int) max(30, $top_off); ?>% off</strong><span style="color:#D9CDE8">Shop deals →</span></a>
-<a class="sale" href="<?php echo esc_url(self::term_url('christmas-gifts')); ?>" style="background:linear-gradient(150deg,#1E4A36,#0B2318);color:#F2FAF5"><small style="color:#BFE7D0">CHRISTMAS SALE</small><strong>Gifts from £5</strong><span style="color:#CFE6DA">Christmas gift shop →</span></a>
-<a class="sale" href="<?php echo esc_url(self::term_url('new-year-sale')); ?>" style="background:linear-gradient(150deg,#F6E3B8,#C89B4E);color:#1A1206"><small>NEW YEAR SALE</small><strong>20% off 2+ items</strong><span style="font-weight:700">Code BUNDLE20 →</span></a>
-<a class="sale" href="<?php echo esc_url(self::term_url('clearance-sale')); ?>" style="background:linear-gradient(150deg,#6E1A28,#2B070E);color:#FFEFF1"><small style="color:#FFC2CB">CLEARANCE</small><strong>Final stock</strong><span style="color:#F4C9CF">30% off and more →</span></a>
+<section class="sales rv" aria-label="Sales"><?php
+		$sales = [
+			['black-friday-deals', 'BLACK FRIDAY', 'Up to ' . (int) max(30, $top_off) . '% off', 'Shop deals →', '#2A1840', '#120A1E', '#F1D9A7', '#fff'],
+			['christmas-gifts', 'CHRISTMAS SALE', 'Gifts from £5', 'Christmas gift shop →', '#1E4A36', '#0B2318', '#BFE7D0', '#F2FAF5'],
+			['new-year-sale', 'NEW YEAR SALE', '20% off 2+ items', 'Code BUNDLE20 →', '#E9C97F', '#B8862F', '#1A1206', '#1A1206'],
+			['clearance-sale', 'CLEARANCE', 'Final stock', '30% off and more →', '#6E1A28', '#2B070E', '#FFC2CB', '#FFEFF1'],
+		];
+		foreach ($sales as $sl) {
+			$ps = self::cat_products($sl[0], 3);
+			$bg = $ps ? ', url(' . esc_url($ps[0]['big'] ?: $ps[0]['img']) . ') right center/cover' : '';
+			echo '<a class="sale" href="' . esc_url(self::term_url($sl[0])) . '" style="color:' . esc_attr($sl[7]) . ';background:linear-gradient(100deg,' . $sl[4] . ' 38%,' . $sl[5] . 'E6 62%,' . $sl[5] . '99)' . $bg . '">' . self::fan_html($ps) . '<small style="color:' . esc_attr($sl[6]) . '">' . esc_html($sl[1]) . '</small><strong>' . esc_html($sl[2]) . '</strong><span>' . esc_html($sl[3]) . '</span></a>';
+		} ?>
 </section>
-<section style="margin:34px 0 10px"><div class="row" style="align-items:end;margin-bottom:16px"><h2>Shop by category</h2><a class="more" href="<?php echo esc_url(home_url('/shop/')); ?>">All products →</a></div>
+<section class="tick rv" aria-label="Trending now"><div class="row" style="margin-bottom:12px"><h2>Trending in the UK <em>right now</em></h2><a class="more" href="<?php echo esc_url(home_url('/shop/')); ?>">See all →</a></div>
+<div class="tk"><div class="tkr"><?php $tr = array_slice($all, 3, 14); foreach (array_merge($tr, $tr) as $p) echo '<a class="ti" href="' . esc_url($p['u']) . '"><img src="' . esc_url($p['img']) . '" alt="' . esc_attr($p['n']) . '" loading="lazy"><span><b>' . esc_html(wp_trim_words($p['n'], 5, '…')) . '</b><i>' . wp_kses_post($p['now']) . '</i></span></a>'; ?></div></div></section>
+<section class="rv" style="margin:34px 0 10px"><div class="row" style="align-items:end;margin-bottom:16px"><h2>Shop by <em>category</em></h2><a class="more" href="<?php echo esc_url(home_url('/shop/')); ?>">All products →</a></div>
 <div class="cats"><?php
 		$cats = [['christmas-gifts', 'Christmas Gift Shop'], ['black-friday-deals', 'Black Friday Deals'], ['gifts-for-him', 'Gifts for Him'], ['gifts-for-her', 'Gifts for Her'], ['gifts-for-teens', 'Gifts for Teens'], ['stocking-fillers', 'Stocking Fillers'], ['tech-gadgets', 'Smart Tech'], ['tech-gaming-picks', 'Gaming'], ['winter-warmers-cosy-gifts', 'Winter Warmers'], ['home-kitchen', 'Home &amp; Kitchen'], ['kitchen-tools-utensils', 'Kitchen Tools'], ['home-living', 'Home &amp; Living'], ['lights-cosy-home', 'Lights &amp; Cosy'], ['health-beauty', 'Beauty &amp; Skincare'], ['health-wellness', 'Health &amp; Wellness'], ['mens-grooming', "Men's Grooming"], ['car-accessories', 'Car Accessories'], ['bags-travel', 'Bags &amp; Travel'], ['fashion-accessories', 'Fashion'], ['pet-essentials', 'Pets'], ['new-year-sale', 'New Year Sale'], ['clearance-sale', 'Clearance'], ['gifts-under-10', 'Gifts under £10'], ['gifts-under-25', 'Gifts under £25']];
 		foreach ($cats as $c) {
@@ -1106,16 +1122,21 @@ if ($top_off) echo '<div class="seal"><small>UP TO</small><span>' . (int) $top_o
 			['clearance-sale', 'Clearance', 'Final stock at 30% off and more. When it is gone, it is gone.', 'linear-gradient(135deg,#6E1A28,#2B070E)', '#FFC2CB', 'CLEARANCE'],
 		];
 		foreach ($rails as $r) {
-			$ps = self::cat_products($r[0], 4);
+			$ps = self::cat_products($r[0], 12);
 			if (count($ps) < 2) continue;
-			echo '<section class="rail"><a class="railhead" href="' . esc_url(self::term_url($r[0])) . '" style="background:' . esc_attr($r[3]) . '"><small style="color:' . esc_attr($r[4]) . '">' . esc_html($r[5]) . '</small><strong>' . wp_kses_post($r[1]) . '</strong><span>' . esc_html($r[2]) . '</span><em>Shop the collection →</em></a><div class="grid4">';
+			$mos = '<span class="mos" aria-hidden="true">'; foreach (array_slice($ps, 0, 4) as $p) $mos .= '<img src="' . esc_url($p['img']) . '" alt="" loading="lazy">'; $mos .= '</span>';
+			echo '<section class="rail rv"><a class="railhead" href="' . esc_url(self::term_url($r[0])) . '" style="background:' . esc_attr($r[3]) . '">' . $mos . '<span class="rh-t"><small style="color:' . esc_attr($r[4]) . '">' . esc_html($r[5]) . '</small><strong>' . wp_kses_post($r[1]) . '</strong><span>' . esc_html($r[2]) . '</span><em>Shop the collection →</em></span></a><div class="swipe"><button class="sw sw-l" type="button" aria-label="Previous">‹</button><div class="track">';
 			foreach ($ps as $p) echo self::card_html($p); // phpcs:ignore
-			echo '</div></section>';
+			echo '</div><button class="sw sw-r" type="button" aria-label="Next">›</button></div></section>';
 		}
 		?>
 <section class="trust rv"><div><b>Free UK delivery</b>Every order, no minimum</div><div><b>30-day returns</b>Free and easy</div><div><b>Gift-ready</b>Packed in Nottingham</div><div><b>Track &amp; chat</b>Live tracking and UK support</div></section>
 </div>
-<script>(function(){var t=document.querySelector('.gx-home .cd .t');if(!t)return;var end=+t.getAttribute('data-end')*1000;function u(){var d=Math.max(0,end-Date.now());var s=Math.floor(d/1000);var v={d:Math.floor(s/86400),h:Math.floor(s%86400/3600),m:Math.floor(s%3600/60),s:s%60};for(var k in v){var e=t.querySelector('[data-u='+k+']');if(e)e.textContent=String(v[k]).padStart(2,'0');}}u();setInterval(u,1000);})();</script>
+<script>(function(){var t=document.querySelector('.gx-home .cd .t');if(!t)return;var end=+t.getAttribute('data-end')*1000;function u(){var d=Math.max(0,end-Date.now());var s=Math.floor(d/1000);var v={d:Math.floor(s/86400),h:Math.floor(s%86400/3600),m:Math.floor(s%3600/60),s:s%60};for(var k in v){var e=t.querySelector('[data-u='+k+']');if(e)e.textContent=String(v[k]).padStart(2,'0');}}u();setInterval(u,1000);})();
+(function(){var h=document.querySelector('.gx-home');if(!h)return;var io='IntersectionObserver' in window?new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{rootMargin:'0px 0px -60px 0px'}):null;h.querySelectorAll('.rv').forEach(function(el){io?io.observe(el):el.classList.add('in');});
+h.querySelectorAll('.swipe').forEach(function(w){var t=w.querySelector('.track');function st(){w.classList.toggle('at-s',t.scrollLeft<8);w.classList.toggle('at-e',t.scrollLeft+t.clientWidth>=t.scrollWidth-8);}w.querySelector('.sw-l').onclick=function(){t.scrollBy({left:-t.clientWidth*.9,behavior:'smooth'});};w.querySelector('.sw-r').onclick=function(){t.scrollBy({left:t.clientWidth*.9,behavior:'smooth'});};t.addEventListener('scroll',st,{passive:true});st();
+var d=false,mv=false,x0,s0;t.addEventListener('pointerdown',function(e){if(e.pointerType!=='mouse')return;d=true;mv=false;x0=e.clientX;s0=t.scrollLeft;});window.addEventListener('pointerup',function(){d=false;setTimeout(function(){t.classList.remove('drag');},0);});t.addEventListener('pointermove',function(e){if(d&&Math.abs(e.clientX-x0)>6){mv=true;t.classList.add('drag');t.scrollLeft=s0-(e.clientX-x0);}});t.addEventListener('click',function(e){if(mv){e.preventDefault();mv=false;}},true);});
+var c=h.querySelector('.hero .stage');if(c&&matchMedia('(pointer:fine)').matches){c.addEventListener('mousemove',function(e){var r=c.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;c.style.transform='rotateY('+(x*6)+'deg) rotateX('+(-y*5)+'deg)';});c.addEventListener('mouseleave',function(){c.style.transform='';});}})();</script>
 <?php
 		$html = '<style>' . self::home_css() . '</style>' . ob_get_clean();
 		set_transient('genz_home_html', $html, 30 * MINUTE_IN_SECONDS);
@@ -1196,6 +1217,36 @@ if ($top_off) echo '<div class="seal"><small>UP TO</small><span>' . (int) $top_o
 .gx .pc{padding:8px;border-radius:16px}.gx .pc .row{flex-direction:column;align-items:stretch}.gx .add{text-align:center}
 .gx .railhead strong{font-size:24px}
 }
+.gx h2 em,.gx h1 em{font-style:italic;color:var(--plum)}
+.gx .stage{transition:transform .4s ease-out;transform-style:preserve-3d}
+.gx .rv{opacity:0;transform:translateY(28px);transition:opacity .8s ease,transform .8s cubic-bezier(.2,.8,.2,1)}.gx .rv.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){.gx .rv{opacity:1;transform:none}.gx .tkr{animation:none!important}}
+.gx .sale{isolation:isolate;min-height:220px}
+.gx .sale>small,.gx .sale>strong,.gx .sale>span:not(.fan){position:relative;z-index:2;text-shadow:0 2px 12px rgba(0,0,0,.25)}
+.gx .fan{position:absolute;right:8px;top:14px;width:52%;height:72%;z-index:1;pointer-events:none}
+.gx .fan img{position:absolute;width:58%;aspect-ratio:1;object-fit:cover;border-radius:16px;border:3px solid rgba(255,255,255,.9);box-shadow:0 18px 30px rgba(0,0,0,.35);transition:transform .5s cubic-bezier(.2,.8,.2,1)}
+.gx .fan .f0{right:18%;top:0;z-index:3;transform:rotate(-4deg)}.gx .fan .f1{right:48%;top:22%;width:46%;z-index:2;transform:rotate(-14deg)}.gx .fan .f2{right:0;top:30%;width:46%;z-index:1;transform:rotate(12deg)}
+.gx .sale:hover .f0{transform:rotate(0) translateY(-8px) scale(1.05)}.gx .sale:hover .f1{transform:rotate(-20deg) translateX(-10px)}.gx .sale:hover .f2{transform:rotate(18deg) translateX(10px)}
+.gx .tick{margin:26px 0}
+.gx .tk{overflow:hidden;-webkit-mask:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);mask:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
+.gx .tkr{display:flex;gap:14px;width:max-content;padding:6px 0 14px;animation:gztk 55s linear infinite}.gx .tk:hover .tkr{animation-play-state:paused}
+@keyframes gztk{to{transform:translateX(-50%)}}
+.gx .ti{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid rgba(91,42,134,.1);border-radius:18px;padding:8px 16px 8px 8px;color:var(--ink)!important;box-shadow:0 10px 24px rgba(70,30,110,.08);transition:transform .3s}
+.gx .ti:hover{transform:translateY(-4px)}.gx .ti img{width:64px;height:64px;border-radius:12px;object-fit:cover}
+.gx .ti span{display:flex;flex-direction:column;font-size:13px;max-width:170px}.gx .ti i{font-style:normal;font-weight:800;color:var(--plum)}
+.gx .railhead{position:relative;overflow:hidden;justify-content:flex-end!important;isolation:isolate;min-height:360px!important}
+.gx .mos{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:3px;z-index:-1}
+.gx .mos img{width:100%;height:100%;object-fit:cover;transition:transform 1.2s cubic-bezier(.2,.8,.2,1)}.gx .railhead:hover .mos img{transform:scale(1.08)}
+.gx .railhead:before{content:"";position:absolute;inset:0;z-index:0;background:inherit;-webkit-mask:linear-gradient(180deg,transparent 0%,rgba(0,0,0,.5) 32%,#000 60%);mask:linear-gradient(180deg,transparent 0%,rgba(0,0,0,.5) 32%,#000 60%)}
+.gx .rh-t{position:relative;z-index:1;display:flex;flex-direction:column;gap:8px}
+.gx .swipe{position:relative;min-width:0}
+.gx .track{display:grid;grid-auto-flow:column;grid-auto-columns:calc((100% - 42px)/4);gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;scroll-behavior:smooth;padding:6px 2px 18px;scrollbar-width:none;cursor:grab}
+.gx .track::-webkit-scrollbar{display:none}.gx .track.drag{cursor:grabbing;scroll-snap-type:none;scroll-behavior:auto}
+.gx .track>.pc{scroll-snap-align:start}
+.gx .sw{position:absolute;top:38%;z-index:3;width:46px;height:46px;border-radius:50%;border:1px solid rgba(201,163,91,.6);background:rgba(255,255,255,.95);color:var(--plum);font-size:28px;line-height:1;cursor:pointer;box-shadow:0 12px 26px rgba(70,30,110,.18);transition:opacity .3s,transform .3s;display:flex;align-items:center;justify-content:center;padding:0 0 4px}
+.gx .sw:hover{transform:scale(1.08)}.gx .sw-l{left:-14px}.gx .sw-r{right:-14px}.gx .at-s .sw-l,.gx .at-e .sw-r{opacity:0;pointer-events:none}
+@media(max-width:900px){.gx .track{grid-auto-columns:calc((100% - 14px)/2.3)}.gx .railhead{min-height:220px!important}.gx .sw{display:none}}
+@media(max-width:760px){.gx .sale{min-height:170px}.gx .fan{width:60%;height:62%;top:8px;right:4px}.gx .fan img{border-width:2px;border-radius:10px}.gx .ti img{width:52px;height:52px}.gx .track{grid-auto-columns:46%}}
 CSS;
 	}
 	static function clear_home_cache() { delete_transient('genz_home_html'); }
