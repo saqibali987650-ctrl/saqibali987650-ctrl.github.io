@@ -1113,7 +1113,7 @@ if ($top_off) echo '<div class="seal"><small>UP TO</small><span>' . (int) $top_o
 			echo '</div></section>';
 		}
 		?>
-<section class="trust"><div><b>Free UK delivery</b>Every order, no minimum</div><div><b>30-day returns</b>Free and easy</div><div><b>Gift-ready</b>Packed in Nottingham</div><div><b>Track &amp; chat</b>Live tracking and UK support</div></section>
+<section class="trust rv"><div><b>Free UK delivery</b>Every order, no minimum</div><div><b>30-day returns</b>Free and easy</div><div><b>Gift-ready</b>Packed in Nottingham</div><div><b>Track &amp; chat</b>Live tracking and UK support</div></section>
 </div>
 <script>(function(){var t=document.querySelector('.gx-home .cd .t');if(!t)return;var end=+t.getAttribute('data-end')*1000;function u(){var d=Math.max(0,end-Date.now());var s=Math.floor(d/1000);var v={d:Math.floor(s/86400),h:Math.floor(s%86400/3600),m:Math.floor(s%3600/60),s:s%60};for(var k in v){var e=t.querySelector('[data-u='+k+']');if(e)e.textContent=String(v[k]).padStart(2,'0');}}u();setInterval(u,1000);})();</script>
 <?php
