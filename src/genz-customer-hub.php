@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.3.1
+ * Version: 1.3.2
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.3.1';
+	const V = '1.3.2';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -1027,7 +1027,34 @@ html,body{margin:0!important;padding:0;background:#FBF8F4!important}
 .gx .trust{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:14px;margin:10px 0 40px}
 .gx .trust div{border-radius:18px;padding:18px;background:#fff;border:1px solid rgba(91,42,134,.08)}.gx .trust b{color:var(--plum);display:block}
 .gx footer{border-top:1px solid #E8E0EF;padding:28px 24px;text-align:center;color:#6E6779;font-size:13px}
-@media(max-width:760px){.gx .stage{height:420px}.gx .card3.c2,.gx .card3.c3{width:150px!important}.gx .srch{min-width:0;flex:1 1 100%}.gx nav{order:3}}
+@media(max-width:760px){
+.gx .w{padding:0 14px}
+.gx header{display:grid;grid-template-columns:1fr auto;gap:12px;padding:12px 0}
+.gx header img{height:40px}
+.gx .bag{grid-column:2;grid-row:1;justify-self:end}
+.gx .srch{grid-column:1/-1;min-width:0}
+.gx nav{grid-column:1/-1;flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;gap:8px;padding-bottom:4px;scrollbar-width:none}
+.gx nav::-webkit-scrollbar{display:none}
+.gx nav a{flex:0 0 auto;background:#fff;border:1px solid rgba(91,42,134,.15);border-radius:999px;padding:8px 14px;font-size:13px}
+.gx .hero{gap:10px;padding-top:6px}
+.gx h1{font-size:44px;margin:12px 0}
+.gx .lead{font-size:16px;margin-bottom:16px}
+.gx .btn{padding:14px 20px}
+.gx .stage{height:380px}
+.gx .card3.c1{left:calc(50% - 100px)!important;top:0!important;width:200px!important}
+.gx .card3.c2{left:0!important;top:150px!important;width:130px!important}
+.gx .card3.c3{right:0!important;left:auto!important;top:170px!important;width:130px!important}
+.gx .card3 .cap{padding:8px 10px}.gx .card3 .cap b{font-size:12px}
+.gx .seal{width:78px;height:78px;right:0;top:0}.gx .seal span{font-size:22px}
+.gx .pod{left:6%;right:6%;height:150px;bottom:40px}
+.gx .cd{padding:16px;gap:12px}.gx .cd .t div{min-width:0;padding:8px 10px}.gx .cd .t b{font-size:20px}.gx .cd .btn{width:100%}
+.gx .sales{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.gx .sale{min-height:130px;padding:16px;border-radius:18px}.gx .sale strong{font-size:21px}.gx .sale small{font-size:10px}.gx .sale span{font-size:12px}
+.gx .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.gx .pc{padding:8px;border-radius:16px}.gx .pc .nm{font-size:13px}.gx .pc .row{flex-direction:column;align-items:stretch}.gx .add{text-align:center}
+.gx .price{font-size:15px}
+.gx .pv{top:auto;bottom:90px;right:10px}
+}
 </style></head><body class="genz-preview"><div class="gx">
 <div class="pv">Preview only · visible to you</div>
 <div class="bar"><span>BLACK FRIDAY · UP TO 40% OFF</span><span>FREE UK DELIVERY ON EVERY ORDER</span><span>EXTRA 20% OFF 2+ ITEMS · BUNDLE20</span></div>
