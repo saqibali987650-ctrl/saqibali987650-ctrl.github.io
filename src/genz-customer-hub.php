@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.4.5
+ * Version: 1.4.6
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.4.5';
+	const V = '1.4.6';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -969,6 +969,7 @@ html body footer.wp-block-template-part,html body footer.wp-block-template-part 
 html body footer.wp-block-template-part a:hover{color:#F1D9A7!important}
 html body footer.wp-block-template-part h2,html body footer.wp-block-template-part h3,html body footer.wp-block-template-part h4{color:#F1D9A7!important;font-family:'Plus Jakarta Sans',sans-serif!important;font-size:13px!important;letter-spacing:.14em!important;text-transform:uppercase!important}
 html body .genz-guides-home a.gg-all{color:#5B2A86!important;font-weight:700}
+@media(max-width:640px){html body #genz-proof{left:10px!important;right:auto!important;bottom:86px!important;max-width:230px!important;padding:8px 10px!important;font-size:11px!important;transform:scale(.92);transform-origin:bottom left}html body #genz-proof img{display:none!important}}
 html body .genz-guides-home > p,html body .genz-guides-home > .wp-block-group > p,html body .genz-guides-home p:not([class]){color:#5E566A!important}
 html body .genz-card,html body .genz-chat-panel{color:#1E1A24}
 CSS;
