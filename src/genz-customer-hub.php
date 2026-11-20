@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.4.4
+ * Version: 1.4.5
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.4.4';
+	const V = '1.4.5';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -35,6 +35,10 @@ final class GenZ_Hub {
 		add_shortcode('genz_subscribe', [__CLASS__, 'sc_subscribe']);
 		add_shortcode('genz_home', [__CLASS__, 'sc_home']);
 		add_filter('render_block', [__CLASS__, 'cat_banner_block'], 10, 2);
+		add_filter('wpseo_title', [__CLASS__, 'cat_seo_title'], 20);
+		add_filter('wpseo_metadesc', [__CLASS__, 'cat_seo_desc'], 20);
+		add_filter('wpseo_opengraph_title', [__CLASS__, 'cat_seo_title'], 20);
+		add_filter('wpseo_opengraph_desc', [__CLASS__, 'cat_seo_desc'], 20);
 		add_action('woocommerce_archive_description', [__CLASS__, 'cat_banner_classic'], 5);
 		add_action('wp_head', [__CLASS__, 'skin_head'], 9999);
 		add_action('admin_post_genz_hub_skin', [__CLASS__, 'admin_skin']);
@@ -1016,6 +1020,20 @@ CSS;
 		return '<div class="genz-cat-hero" style="background:linear-gradient(120deg,' . $c1 . ',' . $c2 . ')"><span class="gch-k">' . esc_html($k) . '</span><div class="gch-h">' . esc_html($h) . '</div><p>' . esc_html($d) . '</p><span class="gch-s">Free UK delivery · 30-day returns · 20% off 2+ with BUNDLE20</span></div>'
 			. '<style>.wp-block-term-description:has(.genz-cat-hero){max-width:none!important;margin-left:0!important;margin-right:0!important}.genz-cat-hero{max-width:none!important;width:100%;box-sizing:border-box;border-radius:24px;padding:34px 38px;margin:6px 0 22px;color:#fff;box-shadow:0 24px 50px -28px rgba(30,26,36,.55);position:relative;overflow:hidden}.genz-cat-hero:after{content:"";position:absolute;right:-60px;top:-60px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(241,217,167,.35),transparent 70%)}.genz-cat-hero .gch-k{font:700 12px/1 "Plus Jakarta Sans",sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#F1D9A7}.genz-cat-hero .gch-h{font-family:"Bodoni Moda",serif;font-size:clamp(28px,4vw,44px);line-height:1.1;margin:10px 0 8px}.genz-cat-hero p{margin:0 0 12px;max-width:620px;opacity:.92;color:#fff!important}.genz-cat-hero .gch-s{font-size:13px;opacity:.85}@media(max-width:640px){.genz-cat-hero{padding:24px 22px}}</style>';
 	}
+	static function cat_seo() {
+		return [
+			'black-friday-deals' => ['Black Friday Gadget Deals UK 2026 – Up to 40% Off | GenZ Gadgets', 'Black Friday 2026 gadget and gift deals in the UK: up to 40% off smart tech, kitchen helpers and winter warmers. Free UK delivery and 30-day returns.'],
+			'clearance-sale' => ['Clearance Sale – Gadgets & Gifts 30% Off+ | GenZ Gadgets UK', 'Clearance gadgets and gifts at 30% off or more while stock lasts. Free UK delivery from Nottingham and easy 30-day returns.'],
+			'new-year-sale' => ['New Year Sale 2027 – Home, Fitness & Organising Gadgets | GenZ Gadgets', 'New Year sale on storage, cleaning, kitchen, fitness and travel gadgets. Buy 2 and save 20% with BUNDLE20. Free UK delivery.'],
+		];
+	}
+	static function cat_seo_pick($i, $v) {
+		if (!function_exists('is_product_category') || !is_product_category()) return $v;
+		$t = get_queried_object(); $m = self::cat_seo();
+		return ($t && isset($m[$t->slug])) ? $m[$t->slug][$i] : $v;
+	}
+	static function cat_seo_title($v) { return self::cat_seo_pick(0, $v); }
+	static function cat_seo_desc($v) { return self::cat_seo_pick(1, $v); }
 	static function cat_banner_block($html, $block) {
 		static $done = false;
 		if ($done || ($block['blockName'] ?? '') !== 'core/term-description') return $html;
