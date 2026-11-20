@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.5.0
+ * Version: 1.5.1
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.5.0';
+	const V = '1.5.1';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -1223,9 +1223,9 @@ var c=h.querySelector('.hero .stage');if(c&&matchMedia('(pointer:fine)').matches
 @media(prefers-reduced-motion:reduce){.gx .rv{opacity:1;transform:none}.gx .tkr{animation:none!important}}
 .gx .sale{isolation:isolate;min-height:220px}
 .gx .sale>small,.gx .sale>strong,.gx .sale>span:not(.fan){position:relative;z-index:2;text-shadow:0 2px 12px rgba(0,0,0,.25)}
-.gx .fan{position:absolute;right:8px;top:14px;width:52%;height:72%;z-index:1;pointer-events:none}
-.gx .fan img{position:absolute;width:58%;aspect-ratio:1;object-fit:cover;border-radius:16px;border:3px solid rgba(255,255,255,.9);box-shadow:0 18px 30px rgba(0,0,0,.35);transition:transform .5s cubic-bezier(.2,.8,.2,1)}
-.gx .fan .f0{right:18%;top:0;z-index:3;transform:rotate(-4deg)}.gx .fan .f1{right:48%;top:22%;width:46%;z-index:2;transform:rotate(-14deg)}.gx .fan .f2{right:0;top:30%;width:46%;z-index:1;transform:rotate(12deg)}
+.gx .fan{position:absolute;right:10px;top:10px;width:50%;height:54%;z-index:1;pointer-events:none}
+.gx .fan img{position:absolute;height:100%;width:auto;aspect-ratio:1;object-fit:cover;border-radius:16px;border:3px solid rgba(255,255,255,.9);box-shadow:0 18px 30px rgba(0,0,0,.35);transition:transform .5s cubic-bezier(.2,.8,.2,1)}
+.gx .fan .f0{right:18%;top:0;z-index:3;transform:rotate(-4deg)}.gx .fan .f1{right:46%;top:16%;height:80%;z-index:2;transform:rotate(-14deg)}.gx .fan .f2{right:0;top:20%;height:80%;z-index:1;transform:rotate(12deg)}
 .gx .sale:hover .f0{transform:rotate(0) translateY(-8px) scale(1.05)}.gx .sale:hover .f1{transform:rotate(-20deg) translateX(-10px)}.gx .sale:hover .f2{transform:rotate(18deg) translateX(10px)}
 .gx .tick{margin:26px 0}
 .gx .tk{overflow:hidden;-webkit-mask:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);mask:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
@@ -1233,7 +1233,7 @@ var c=h.querySelector('.hero .stage');if(c&&matchMedia('(pointer:fine)').matches
 @keyframes gztk{to{transform:translateX(-50%)}}
 .gx .ti{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid rgba(91,42,134,.1);border-radius:18px;padding:8px 16px 8px 8px;color:var(--ink)!important;box-shadow:0 10px 24px rgba(70,30,110,.08);transition:transform .3s}
 .gx .ti:hover{transform:translateY(-4px)}.gx .ti img{width:64px;height:64px;border-radius:12px;object-fit:cover}
-.gx .ti span{display:flex;flex-direction:column;font-size:13px;max-width:170px}.gx .ti i{font-style:normal;font-weight:800;color:var(--plum)}
+.gx .ti span{display:flex;flex-direction:column;font-size:13px;max-width:170px}.gx .ti b{font-weight:600;line-height:1.3}.gx .ti i{font-style:normal;font-weight:800;color:var(--plum);white-space:nowrap;display:block;margin-top:2px}.gx .ti i *{display:inline!important;white-space:nowrap}
 .gx .railhead{position:relative;overflow:hidden;justify-content:flex-end!important;isolation:isolate;min-height:360px!important}
 .gx .mos{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:3px;z-index:-1}
 .gx .mos img{width:100%;height:100%;object-fit:cover;transition:transform 1.2s cubic-bezier(.2,.8,.2,1)}.gx .railhead:hover .mos img{transform:scale(1.08)}
@@ -1246,7 +1246,7 @@ var c=h.querySelector('.hero .stage');if(c&&matchMedia('(pointer:fine)').matches
 .gx .sw{position:absolute;top:38%;z-index:3;width:46px;height:46px;border-radius:50%;border:1px solid rgba(201,163,91,.6);background:rgba(255,255,255,.95);color:var(--plum);font-size:28px;line-height:1;cursor:pointer;box-shadow:0 12px 26px rgba(70,30,110,.18);transition:opacity .3s,transform .3s;display:flex;align-items:center;justify-content:center;padding:0 0 4px}
 .gx .sw:hover{transform:scale(1.08)}.gx .sw-l{left:-14px}.gx .sw-r{right:-14px}.gx .at-s .sw-l,.gx .at-e .sw-r{opacity:0;pointer-events:none}
 @media(max-width:900px){.gx .track{grid-auto-columns:calc((100% - 14px)/2.3)}.gx .railhead{min-height:220px!important}.gx .sw{display:none}}
-@media(max-width:760px){.gx .sale{min-height:170px}.gx .fan{width:60%;height:62%;top:8px;right:4px}.gx .fan img{border-width:2px;border-radius:10px}.gx .ti img{width:52px;height:52px}.gx .track{grid-auto-columns:46%}}
+@media(max-width:760px){.gx .sale{min-height:190px}.gx .fan{width:70%;height:46%;top:8px;right:4px}.gx .fan img{border-width:2px;border-radius:10px}.gx .ti img{width:52px;height:52px}.gx .track{grid-auto-columns:46%}}
 CSS;
 	}
 	static function clear_home_cache() { delete_transient('genz_home_html'); }
