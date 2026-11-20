@@ -5,6 +5,6 @@ UK online gadget and gift shop based in Nottingham, with free UK delivery and 30
 **Shop:** https://genzgadget.uk/
 
 - [Tech gadgets](https://genzgadget.uk/collections/tech-gadgets/)
-- [Gadgets for men](https://genzgadget.uk/collections/gadgets-for-men/)
-- [Gadgets for her](https://genzgadget.uk/collections/gadgets-for-her/)
+- [Gifts for him](https://genzgadget.uk/collections/gifts-for-him/)
+- [Gifts for her](https://genzgadget.uk/collections/gifts-for-her/)
 - [Gift guides](https://genzgadget.uk/blogs/news/)
