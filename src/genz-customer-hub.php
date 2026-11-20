@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.4.3
+ * Version: 1.4.4
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.4.3';
+	const V = '1.4.4';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -1014,7 +1014,7 @@ CSS;
 		if (!$t || empty($m[$t->slug])) return '';
 		list($k, $h, $d, $c1, $c2) = $m[$t->slug];
 		return '<div class="genz-cat-hero" style="background:linear-gradient(120deg,' . $c1 . ',' . $c2 . ')"><span class="gch-k">' . esc_html($k) . '</span><div class="gch-h">' . esc_html($h) . '</div><p>' . esc_html($d) . '</p><span class="gch-s">Free UK delivery · 30-day returns · 20% off 2+ with BUNDLE20</span></div>'
-			. '<style>.genz-cat-hero{border-radius:24px;padding:34px 38px;margin:6px 0 22px;color:#fff;box-shadow:0 24px 50px -28px rgba(30,26,36,.55);position:relative;overflow:hidden}.genz-cat-hero:after{content:"";position:absolute;right:-60px;top:-60px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(241,217,167,.35),transparent 70%)}.genz-cat-hero .gch-k{font:700 12px/1 "Plus Jakarta Sans",sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#F1D9A7}.genz-cat-hero .gch-h{font-family:"Bodoni Moda",serif;font-size:clamp(28px,4vw,44px);line-height:1.1;margin:10px 0 8px}.genz-cat-hero p{margin:0 0 12px;max-width:620px;opacity:.92;color:#fff!important}.genz-cat-hero .gch-s{font-size:13px;opacity:.85}@media(max-width:640px){.genz-cat-hero{padding:24px 22px}}</style>';
+			. '<style>.wp-block-term-description:has(.genz-cat-hero){max-width:none!important;margin-left:0!important;margin-right:0!important}.genz-cat-hero{max-width:none!important;width:100%;box-sizing:border-box;border-radius:24px;padding:34px 38px;margin:6px 0 22px;color:#fff;box-shadow:0 24px 50px -28px rgba(30,26,36,.55);position:relative;overflow:hidden}.genz-cat-hero:after{content:"";position:absolute;right:-60px;top:-60px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(241,217,167,.35),transparent 70%)}.genz-cat-hero .gch-k{font:700 12px/1 "Plus Jakarta Sans",sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#F1D9A7}.genz-cat-hero .gch-h{font-family:"Bodoni Moda",serif;font-size:clamp(28px,4vw,44px);line-height:1.1;margin:10px 0 8px}.genz-cat-hero p{margin:0 0 12px;max-width:620px;opacity:.92;color:#fff!important}.genz-cat-hero .gch-s{font-size:13px;opacity:.85}@media(max-width:640px){.genz-cat-hero{padding:24px 22px}}</style>';
 	}
 	static function cat_banner_block($html, $block) {
 		static $done = false;
