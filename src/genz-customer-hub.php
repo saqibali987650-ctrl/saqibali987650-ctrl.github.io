@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.5.2
+ * Version: 1.5.3
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.5.2';
+	const V = '1.5.3';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -978,7 +978,7 @@ html body .genz-marquee{background:linear-gradient(90deg,#3A1660,#5B2A86 50%,#3A
 html body .genz-marquee,html body .genz-marquee *{color:#FFF7E6!important;font-weight:700!important;font-size:14px!important;letter-spacing:.03em}
 html body .genz-marquee b,html body .genz-marquee strong{color:#F1D9A7!important}
 html body .genz-reviews-home .grv-grid,html body .genz-reviews-home .grv-card{}
-html body .genz-reviews-home .grv-pic{height:150px!important;max-height:150px!important;width:100%!important;object-fit:cover!important;border-radius:14px!important}
+html body .genz-reviews-home h2,html body .genz-reviews-home h3{color:#fff!important}html body .genz-reviews-home .grv-pic{height:130px!important;max-height:130px!important;width:100%!important;object-fit:cover!important;border-radius:14px!important}
 html body .genz-reviews-home .grv-card{padding:14px!important;gap:8px!important}
 html body .genz-reviews-home :has(> .grv-card){grid-template-columns:repeat(auto-fill,minmax(250px,1fr))!important;gap:14px!important}
 html body .genz-reviews-home .grv-card p,html body .genz-reviews-home .grv-card q,html body .genz-reviews-home .grv-card blockquote{font-size:14px!important;line-height:1.5!important}
@@ -1269,9 +1269,9 @@ var c=h.querySelector('.hero .stage');if(c&&matchMedia('(pointer:fine)').matches
 .gx .cartic:hover{background:var(--plum);color:#fff!important;transform:translateY(-2px)}
 .gx .buy{flex:1;display:flex;align-items:center;justify-content:center;height:42px;border-radius:12px;background:linear-gradient(180deg,var(--plum2),var(--plum));color:#fff!important;font-weight:800;font-size:13px;white-space:nowrap;box-shadow:0 8px 18px rgba(91,42,134,.25);transition:filter .25s,transform .25s}
 .gx .buy:hover{filter:brightness(1.08);transform:translateY(-2px)}
-.gx .sale>strong{max-width:62%}.gx .sale>small,.gx .sale>span:not(.fan){max-width:70%}
+.gx .fan{height:44%!important;width:46%!important;top:12px!important}.gx .sale>strong{font-size:clamp(22px,2.1vw,30px)!important;white-space:nowrap}.gx .sale{justify-content:flex-end;padding-top:46%!important}
 .gx p,.gx .lead,.gx span,.gx a{font-weight:inherit}.gx{font-weight:500}
-@media(max-width:760px){.gx .cartic{flex-basis:38px;height:38px}.gx .buy{height:38px;font-size:12px}.gx .sale>strong{max-width:100%;font-size:20px}}
+@media(max-width:760px){.gx .cartic{flex-basis:38px;height:38px}.gx .buy{height:38px;font-size:12px}.gx .sale>strong{font-size:19px!important;white-space:normal}.gx .sale{padding-top:52%!important}.gx .fan{width:70%!important;height:42%!important}}
 CSS;
 	}
 	static function clear_home_cache() { delete_transient('genz_home_html'); }
