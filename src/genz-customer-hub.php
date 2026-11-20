@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.4.0
+ * Version: 1.4.1
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.4.0';
+	const V = '1.4.1';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -937,6 +937,11 @@ html body .genz-marquee{background:linear-gradient(90deg,#F6E3B8,#F1D9A7)!import
 html body .genz-marquee *{color:#1A1206!important}
 html body header.wp-block-template-part{position:relative;z-index:50;background:rgba(255,255,255,.92);backdrop-filter:blur(12px);border-bottom:1px solid #EDE5F3;box-shadow:0 8px 30px rgba(70,30,110,.06)}
 html body header.wp-block-template-part *{color:#1E1A24}
+html body .genz-header,html body header .genz-header{background:rgba(255,255,255,.94)!important;backdrop-filter:blur(12px)}
+html body .genz-header .wp-block-navigation-item__content,html body .genz-header .wp-block-navigation-item__label,html body .genz-header .wp-block-navigation__submenu-icon,html body .genz-header svg{color:#1E1A24!important;fill:currentColor}
+html body .genz-header .wp-block-navigation-item__content:hover{color:#5B2A86!important}
+html body .genz-header .wp-block-navigation__submenu-container .wp-block-navigation-item__content{color:#1E1A24!important}
+html body .genz-header .wp-block-navigation__responsive-container-open{color:#1E1A24!important}
 html body header.wp-block-template-part .wp-block-navigation__submenu-container{background:#fff!important;border:1px solid #EDE5F3!important;border-radius:14px!important;box-shadow:0 20px 50px rgba(70,30,110,.15)!important}
 html body header.wp-block-template-part .wp-block-navigation__submenu-container a:hover{background:#F4EEF9!important;color:#5B2A86!important}
 html body header.wp-block-template-part .wp-block-site-logo{background:linear-gradient(135deg,#2A1840,#120A1E);border-radius:14px;padding:6px 12px;box-shadow:0 8px 20px rgba(42,24,64,.25)}
@@ -1070,6 +1075,7 @@ if ($top_off) echo '<div class="seal"><small>UP TO</small><span>' . (int) $top_o
 	static function home_css() {
 		return <<<'CSS'
 .gx{--ink:#1E1A24;--mut:#5E566A;--plum:#5B2A86;--plum2:#7B45B5;--gold2:#F1D9A7;font-family:'Plus Jakarta Sans',system-ui,sans-serif;color:var(--ink)}
+.gx-home{width:min(1320px,calc(100vw - 32px))!important;max-width:none!important;margin-left:calc(50% - min(660px,calc(50vw - 16px)))!important;margin-right:0!important}
 .gx *{box-sizing:border-box}.gx a{text-decoration:none!important}.gx .mut{color:var(--mut)}
 .gx .hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,500px),1fr));gap:30px;align-items:center;padding:18px 0 6px}
 .gx .chip{display:inline-block;background:#FFF6E2;border:1px solid rgba(201,163,91,.55);color:#8A5A12;font-size:12px;font-weight:800;letter-spacing:.16em;padding:8px 14px;border-radius:999px}
