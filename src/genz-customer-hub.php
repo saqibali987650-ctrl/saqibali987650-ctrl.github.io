@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.7.0
+ * Version: 1.7.1
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.7.0';
+	const V = '1.7.1';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -2526,14 +2526,13 @@ class GenZ_Import {
 		imagefilledellipse($im, 1120, 230, 220, 220, imagecolorallocatealpha($im, 255, 255, 255, 110));
 		// product photo: centre-crop square, then zoom in slightly to drop supplier borders
 		$pw = imagesx($p); $ph = imagesy($p); $s = (int) (min($pw, $ph) * 0.94); $sx = (int) (($pw - $s) / 2); $sy = (int) (($ph - $s) / 2);
-		$S = 740; $X = (int) (($W - $S) / 2); $Y = 290;
-		for ($i = 10; $i >= 1; $i--) self::rrect($im, $X - 8 + $i * 2, $Y - 8 + $i * 4, $X + $S + 8 + $i * 2, $Y + $S + 8 + $i * 4, 44, imagecolorallocatealpha($im, 30, 10, 40, 118));
-		self::rrect($im, $X - 12, $Y - 12, $X + $S + 12, $Y + $S + 12, 46, imagecolorallocate($im, 255, 255, 255));
-		$tile = imagecreatetruecolor($S, $S); imagecopyresampled($tile, $p, 0, 0, $sx, $sy, $S, $S, $s, $s);
-		// rounded corners: paint corners with white frame colour
-		$white = imagecolorallocate($tile, 255, 255, 255); $r = 36;
-		for ($yy = 0; $yy < $r; $yy++) for ($xx = 0; $xx < $r; $xx++) { if (($r - $xx) ** 2 + ($r - $yy) ** 2 > $r * $r) { imagesetpixel($tile, $xx, $yy, $white); imagesetpixel($tile, $S - 1 - $xx, $yy, $white); imagesetpixel($tile, $xx, $S - 1 - $yy, $white); imagesetpixel($tile, $S - 1 - $xx, $S - 1 - $yy, $white); } }
-		imagecopy($im, $tile, $X, $Y, 0, 0, $S, $S);
+		$S = 880; $X = (int) (($W - $S) / 2); $Y = 270;
+		for ($i = 8; $i >= 1; $i--) self::rrect($im, $X + $i * 2, $Y + $i * 4, $X + $S + $i * 2, $Y + $S + $i * 4, 40, imagecolorallocatealpha($im, 30, 10, 40, 120));
+		$tile = imagecreatetruecolor($S, $S); imagealphablending($tile, false); imagesavealpha($tile, true);
+		imagecopyresampled($tile, $p, 0, 0, $sx, $sy, $S, $S, $s, $s);
+		$clear = imagecolorallocatealpha($tile, 0, 0, 0, 127); $r = 40;
+		for ($yy = 0; $yy < $r; $yy++) for ($xx = 0; $xx < $r; $xx++) { if (($r - $xx) ** 2 + ($r - $yy) ** 2 > $r * $r) { imagesetpixel($tile, $xx, $yy, $clear); imagesetpixel($tile, $S - 1 - $xx, $yy, $clear); imagesetpixel($tile, $xx, $S - 1 - $yy, $clear); imagesetpixel($tile, $S - 1 - $xx, $S - 1 - $yy, $clear); } }
+		imagealphablending($im, true); imagecopy($im, $tile, $X, $Y, 0, 0, $S, $S);
 		// top tag pill
 		$tagtxt = strtoupper($tag ?: $th[5]); $bb = imagettfbbox(22, 0, $fb, $tagtxt); $tw = $bb[2] - $bb[0] + 56;
 		self::rrect($im, (int) (($W - $tw) / 2), 46, (int) (($W + $tw) / 2), 98, 26, self::hex($im, $th[3])); 
@@ -2541,20 +2540,10 @@ class GenZ_Import {
 		// headline
 		$lines = self::wrap($headline, 58, $fb, 1040); $y = count($lines) > 1 ? 176 : 205;
 		foreach ($lines as $ln) { self::text_center($im, 58, $fb, self::hex($im, $th[2]), $y, $ln); $y += 74; }
-		// price burst
-		if ($price) {
-			imagefilledellipse($im, 1030, 1000, 250, 250, imagecolorallocatealpha($im, 0, 0, 0, 100));
-			imagefilledellipse($im, 1024, 990, 236, 236, self::hex($im, '#F1D9A7')); imagefilledellipse($im, 1024, 990, 210, 210, self::hex($im, '#C9A35B'));
-			$pt = '£' . (fmod((float) $price, 1) ? number_format((float) $price, 2) : (int) $price); $sz = strlen($pt) > 5 ? 40 : 48; $bb = imagettfbbox($sz, 0, $fb, $pt);
-			imagettftext($im, 18, 0, 984, 948, self::hex($im, '#3A2406'), $fb, 'ONLY');
-			imagettftext($im, $sz, 0, (int) (1024 - ($bb[2] - $bb[0]) / 2), 1012, self::hex($im, '#1E1A24'), $fb, $pt);
-		}
 		// bottom ribbon
-		self::rrect($im, 60, 1060, 680, 1140, 40, self::hex($im, '#1E1A24'));
-		imagettftext($im, 26, 0, 100, 1113, self::hex($im, '#FFFFFF'), $fb, 'FREE UK DELIVERY');
-		imagettftext($im, 20, 0, 430, 1112, self::hex($im, '#F1D9A7'), $fs, '· 30-day returns');
+		self::rrect($im, 290, 1096, 910, 1168, 36, self::hex($im, '#1E1A24', 10));
+		self::text_center($im, 24, $fb, self::hex($im, '#FFFFFF'), 1143, 'FREE UK DELIVERY  ·  30-DAY RETURNS');
 		// brand
-		imagettftext($im, 20, 0, 62, 1170, self::hex($im, $th[2], 30), $fs, 'genzgadget.uk');
 		$up = wp_upload_dir(); $dir = $up['path']; $name = 'genz-poster-' . wp_generate_password(8, false) . '.jpg'; $file = "$dir/$name";
 		imagejpeg($im, $file, 88); imagedestroy($im); imagedestroy($p); imagedestroy($tile);
 		return $file;
@@ -2608,6 +2597,7 @@ class GenZ_Import {
 		}
 		$pid = $p->save();
 		update_post_meta($pid, '_genz_src', $src);
+		update_post_meta($pid, '_genz_poster', ['headline' => sanitize_text_field($it['headline'] ?? $name), 'theme' => sanitize_key($it['theme'] ?? 'toys'), 'tag' => sanitize_text_field($it['tag'] ?? '')]);
 		if (!empty($it['pfields'])) update_post_meta($pid, '_genz_pfields', array_map('sanitize_text_field', (array) $it['pfields']));
 		if ($opts) {
 			foreach ($opts['values'] as $v) {
@@ -2637,9 +2627,14 @@ class GenZ_Import {
 	static function r_poster($r) {
 		$pid = (int) $r->get_param('id'); $p = wc_get_product($pid); if (!$p) return new WP_Error('nf', 'no product');
 		$gal = $p->get_gallery_image_ids(); $src = $gal ? get_attached_file($gal[0]) : get_attached_file($p->get_image_id());
-		$poster = self::make_poster($src, $r->get_param('headline') ?: $p->get_name(), $p->get_price(), $r->get_param('theme') ?: 'toys', (string) $r->get_param('tag'));
+		$m = get_post_meta($pid, '_genz_poster', true); $m = is_array($m) ? $m : [];
+		$h = $r->get_param('headline') ?: ($m['headline'] ?? $p->get_name()); $th = $r->get_param('theme') ?: ($m['theme'] ?? 'toys'); $tg = $r->get_param('tag') !== null ? (string) $r->get_param('tag') : ($m['tag'] ?? '');
+		update_post_meta($pid, '_genz_poster', ['headline' => $h, 'theme' => $th, 'tag' => $tg]);
+		$old = $p->get_image_id();
+		$poster = self::make_poster($src, $h, $p->get_price(), $th, $tg);
 		if (is_wp_error($poster)) return $poster;
 		$aid = self::attach_file($poster, $pid, $p->get_name()); $p->set_image_id($aid); $p->save();
+		if ($old && $old != $aid && strpos((string) get_attached_file($old), 'genz-poster-') !== false) wp_delete_attachment($old, true);
 		return ['ok' => true, 'poster' => wp_get_attachment_url($aid)];
 	}
 	/* ---------- personalisation fields on product page */
