@@ -2,7 +2,7 @@
 /**
  * Plugin Name: GenZ Customer Hub
  * Description: On-site order tracking (Cainiao), tracking update emails, email-link login, newsletter subscribers and a customer inbox for GenZ Gadgets Store.
- * Version: 1.5.1
+ * Version: 1.5.2
  * Author: GenZ Gadgets Store
  * Requires Plugins: woocommerce
  * Text Domain: genz-hub
@@ -10,7 +10,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class GenZ_Hub {
-	const V = '1.5.1';
+	const V = '1.5.2';
 	const NS = 'genz-hub/v1';
 
 	/* ------------------------------------------------------------------ boot */
@@ -969,6 +969,21 @@ html body footer.wp-block-template-part,html body footer.wp-block-template-part 
 html body footer.wp-block-template-part a:hover{color:#F1D9A7!important}
 html body footer.wp-block-template-part h2,html body footer.wp-block-template-part h3,html body footer.wp-block-template-part h4{color:#F1D9A7!important;font-family:'Plus Jakarta Sans',sans-serif!important;font-size:13px!important;letter-spacing:.14em!important;text-transform:uppercase!important}
 html body .genz-guides-home a.gg-all{color:#5B2A86!important;font-weight:700}
+html body{font-size:16px!important;font-weight:400!important;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+html body p,html body li,html body .wp-block-post-content{font-weight:400}
+html body h1,html body h2,html body h3,html body .wp-block-post-title,html body .wp-block-query-title{font-family:'Bodoni Moda',Georgia,serif!important;font-weight:600!important;letter-spacing:-.01em;font-optical-sizing:auto}
+html body .wc-block-components-product-name,html body .wp-block-post-title a,html body li.product h2,html body .wc-block-grid__product-title,html body .woocommerce-loop-product__title,html body .wc-block-product .wp-block-post-title{font-family:'Plus Jakarta Sans',system-ui,sans-serif!important;font-weight:600!important;font-size:15px!important;letter-spacing:0!important;line-height:1.35!important}
+html body .wp-block-navigation-item__content{font-weight:700!important;letter-spacing:.01em}
+html body .genz-marquee{background:linear-gradient(90deg,#3A1660,#5B2A86 50%,#3A1660)!important;border-bottom:2px solid #C9A35B!important;min-height:42px;display:flex;align-items:center}
+html body .genz-marquee,html body .genz-marquee *{color:#FFF7E6!important;font-weight:700!important;font-size:14px!important;letter-spacing:.03em}
+html body .genz-marquee b,html body .genz-marquee strong{color:#F1D9A7!important}
+html body .genz-reviews-home .grv-grid,html body .genz-reviews-home .grv-card{}
+html body .genz-reviews-home .grv-pic{height:150px!important;max-height:150px!important;width:100%!important;object-fit:cover!important;border-radius:14px!important}
+html body .genz-reviews-home .grv-card{padding:14px!important;gap:8px!important}
+html body .genz-reviews-home :has(> .grv-card){grid-template-columns:repeat(auto-fill,minmax(250px,1fr))!important;gap:14px!important}
+html body .genz-reviews-home .grv-card p,html body .genz-reviews-home .grv-card q,html body .genz-reviews-home .grv-card blockquote{font-size:14px!important;line-height:1.5!important}
+@media(max-width:640px){html body .genz-reviews-home .grv-pic{height:120px!important;max-height:120px!important}html body .genz-marquee *{font-size:13px!important}}
+
 @media(max-width:640px){html body #genz-proof{left:10px!important;right:auto!important;bottom:86px!important;max-width:230px!important;padding:8px 10px!important;font-size:11px!important;transform:scale(.92);transform-origin:bottom left}html body #genz-proof img{display:none!important}}
 html body .genz-guides-home > p,html body .genz-guides-home > .wp-block-group > p,html body .genz-guides-home p:not([class]){color:#5E566A!important}
 html body .genz-card,html body .genz-chat-panel{color:#1E1A24}
@@ -992,7 +1007,8 @@ CSS;
 				'num' => $now, 'now' => wc_price($now), 'was' => ($p->is_on_sale() && $reg > $now) ? wc_price($reg) : '',
 				'off' => ($p->is_on_sale() && $reg > $now) ? (int) round(100 - $now / $reg * 100) : 0,
 				'rt' => (float) $p->get_average_rating(), 'rc' => (int) $p->get_review_count(),
-				'cart' => $p->is_type('simple') ? add_query_arg('add-to-cart', $p->get_id(), wc_get_cart_url()) : get_permalink($p->get_id())];
+				'cart' => $p->is_type('simple') ? add_query_arg('add-to-cart', $p->get_id(), home_url('/')) : get_permalink($p->get_id()),
+				'buy' => $p->is_type('simple') ? add_query_arg('add-to-cart', $p->get_id(), wc_get_checkout_url()) : get_permalink($p->get_id())];
 		}
 		return $out;
 	}
@@ -1005,7 +1021,7 @@ CSS;
 		$h = '<article class="pc"><a class="im" href="' . esc_url($p['u']) . '"><img src="' . esc_url($p['img']) . '" alt="' . esc_attr($p['n']) . '" loading="lazy">' . ($p['off'] ? '<span class="off">−' . (int) $p['off'] . '%</span>' : '') . '</a>';
 		$h .= '<a class="nm" href="' . esc_url($p['u']) . '">' . esc_html($p['n']) . '</a>';
 		if ($p['rt']) $h .= '<div class="st">' . esc_html(self::preview_stars($p['rt'])) . ' <span>(' . (int) $p['rc'] . ')</span></div>';
-		$h .= '<div class="row"><span class="price">' . wp_kses_post($p['now']) . ($p['was'] ? '<del>' . wp_kses_post($p['was']) . '</del>' : '') . '</span><a class="add" href="' . esc_url($p['cart']) . '" rel="nofollow">Add to bag</a></div></article>';
+		$h .= '<div class="row"><span class="price">' . wp_kses_post($p['now']) . ($p['was'] ? '<del>' . wp_kses_post($p['was']) . '</del>' : '') . '</span><span class="acts"><a class="cartic" href="' . esc_url($p['cart']) . '" rel="nofollow" aria-label="Add to cart" title="Add to cart"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1.4"/><circle cx="19" cy="21" r="1.4"/><path d="M2.5 3h2.6l2.4 12.2a2 2 0 0 0 2 1.6h8.6a2 2 0 0 0 2-1.5L22 8H6.2"/><path d="M14 10.5v-4M12 8.5h4"/></svg></a><a class="buy" href="' . esc_url($p['buy']) . '" rel="nofollow">Buy it now</a></span></div></article>';
 		return $h;
 	}
 	static function cat_banners() {
@@ -1247,6 +1263,15 @@ var c=h.querySelector('.hero .stage');if(c&&matchMedia('(pointer:fine)').matches
 .gx .sw:hover{transform:scale(1.08)}.gx .sw-l{left:-14px}.gx .sw-r{right:-14px}.gx .at-s .sw-l,.gx .at-e .sw-r{opacity:0;pointer-events:none}
 @media(max-width:900px){.gx .track{grid-auto-columns:calc((100% - 14px)/2.3)}.gx .railhead{min-height:220px!important}.gx .sw{display:none}}
 @media(max-width:760px){.gx .sale{min-height:190px}.gx .fan{width:70%;height:46%;top:8px;right:4px}.gx .fan img{border-width:2px;border-radius:10px}.gx .ti img{width:52px;height:52px}.gx .track{grid-auto-columns:46%}}
+
+.gx .acts{display:flex;gap:8px;align-items:stretch}
+.gx .cartic{flex:0 0 44px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:12px;border:1.5px solid rgba(91,42,134,.35);background:#fff;color:var(--plum)!important;transition:background .25s,color .25s,transform .25s}
+.gx .cartic:hover{background:var(--plum);color:#fff!important;transform:translateY(-2px)}
+.gx .buy{flex:1;display:flex;align-items:center;justify-content:center;height:42px;border-radius:12px;background:linear-gradient(180deg,var(--plum2),var(--plum));color:#fff!important;font-weight:800;font-size:13px;white-space:nowrap;box-shadow:0 8px 18px rgba(91,42,134,.25);transition:filter .25s,transform .25s}
+.gx .buy:hover{filter:brightness(1.08);transform:translateY(-2px)}
+.gx .sale>strong{max-width:62%}.gx .sale>small,.gx .sale>span:not(.fan){max-width:70%}
+.gx p,.gx .lead,.gx span,.gx a{font-weight:inherit}.gx{font-weight:500}
+@media(max-width:760px){.gx .cartic{flex-basis:38px;height:38px}.gx .buy{height:38px;font-size:12px}.gx .sale>strong{max-width:100%;font-size:20px}}
 CSS;
 	}
 	static function clear_home_cache() { delete_transient('genz_home_html'); }
